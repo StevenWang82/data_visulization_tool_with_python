@@ -1,23 +1,20 @@
 import dash
-from dash import dcc, html
+from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output, State
 import pandas as pd
 import base64
 import io
-from dash import dash_table # Updated import
+import math # Import math for ceil
 
-# Import the main app instance from parent directory
-from app import app
+# Import the main app instance from parent directory (ensure this works in your structure)
+# from app import app # Assuming app.py is in the parent directory
 
 # --- Layout for Data Upload ---
 layout = html.Div([
     html.H2("Load CSV Data"),
     dcc.Upload(
-        id='upload-data', # More general ID
-        children=html.Div([
-            'Drag and Drop or ',
-            html.A('Select CSV File')
-        ]),
+        id='upload-data',
+        children=html.Div(['Drag and Drop or ', html.A('Select CSV File')]),
         style={
             'width': '95%', 'height': '60px', 'lineHeight': '60px',
             'borderWidth': '1px', 'borderStyle': 'dashed',
@@ -25,32 +22,50 @@ layout = html.Div([
         },
         multiple=False
     ),
-    html.Div(id='output-status'), # More general ID
+    html.Div(id='output-status'),
     html.Hr(),
     html.H4("Data Table Preview:"),
     dcc.Dropdown(
         id='rows-per-page-dropdown',
         options=[{'label': str(i), 'value': i} for i in [10, 25, 50]],
-        value=10,
+        value=10, # Default page size
         clearable=False,
-        style={'width': '48%', 'display': 'inline-block', 'marginRight': '4%'}
+        style={'width': '200px', 'marginBottom': '10px'} # Adjust style as needed
     ),
-    dcc.Store(id='stored-data') # Hidden storage
+    # --- DataTable Container ---
+    # The DataTable itself will now handle pagination
+    dash_table.DataTable(
+        id='data-table',
+        columns=[], # Initially empty
+        data=[],    # Initially empty
+        page_current=0,
+        page_size=10, # Initial page size matches dropdown default
+        page_action='native', # Enable native pagination
+        sort_action='native', # Optional: Enable native sorting
+        filter_action='native', # Optional: Enable native filtering
+        style_table={'overflowX': 'auto'}, # Ensure horizontal scrolling if needed
+        style_cell={
+            'height': 'auto',
+            # all three widths are needed
+            'minWidth': '100px', 'width': '100px', 'maxWidth': '180px',
+            'whiteSpace': 'normal'
+        },
+    ),
+    dcc.Store(id='stored-data') # Hidden storage for the full dataset (optional but good practice)
 ])
 
-# --- Minimal Parsing Function ---
+# --- Minimal Parsing Function (Keep your existing function) ---
 def parse_csv_simple(contents, filename):
-    print(f"parse_csv_simple called for: {filename}")  # 確認函數被呼叫
+    # ... (your existing parse_csv_simple function remains the same) ...
+    print(f"parse_csv_simple called for: {filename}")
+    if contents is None:
+         return None, "No file uploaded."
     content_type, content_string = contents.split(',')
-    print(f"content_type: {content_type}") # 印出 content_type
-    # print(f"content_string: {content_string[:100]}...") # 印出 content_string 前 100 字元 (避免過長)
     decoded = base64.b64decode(content_string)
-    print("base64 decoded successfully") # 確認 base64 解碼成功
     try:
-        if not isinstance(filename, str) or 'csv' not in filename.lower(): # Add check for filename type
-             return None, "Invalid file type. Please upload a CSV file." # More specific error
+        if not isinstance(filename, str) or 'csv' not in filename.lower():
+            return None, "Invalid file type. Please upload a CSV file."
 
-        # Try reading with UTF-8
         print("Attempting to read CSV with UTF-8...")
         try:
             df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
@@ -58,12 +73,12 @@ def parse_csv_simple(contents, filename):
         except UnicodeDecodeError:
             print("UTF-8 decode failed, trying GBK...")
             try:
-                df = pd.read_csv(io.StringIO(decoded.decode('gbk'))) # Try GBK encoding
+                df = pd.read_csv(io.StringIO(decoded.decode('gbk')))
                 print("CSV read successfully with GBK.")
             except Exception as decode_err:
                 error_msg_decode = f"Error decoding file: {str(decode_err)}"
                 print(error_msg_decode)
-                return None, error_msg_decode # Return decode error
+                return None, error_msg_decode
 
         if df.empty:
             return None, "CSV file is empty."
@@ -72,74 +87,52 @@ def parse_csv_simple(contents, filename):
 
     except Exception as e:
         error_msg = f"Error processing file '{filename}': {str(e)}"
-        print(error_msg) # Log error to terminal
+        print(error_msg)
         return None, error_msg
 
-# --- Callback to update output and store data ---
-def update_output(contents, filename, rows_per_page): # More general name
-    print(f"--- update_output triggered --- Filename: {filename}, Rows per page: {rows_per_page}")
-    print(f"--- Filename type: {type(filename)}, Rows per page type: {type(rows_per_page)}") # Add these print statements
-    if contents is None:
-        print("No contents, initial state.")
-        return html.Div("Please upload a CSV file."), None # Initial state, also return None for stored data
 
-    df, message = parse_csv_simple(contents, filename)
+# --- Callback registration (Simplified) ---
+# Define a function to register callbacks, taking app as argument
+def register_callbacks(app):
+    print("register_callbacks function called in pages/data_upload.py")
 
-    if df is not None:
-        print("DataFrame created, preparing data table output.")
-        status_div = html.Div(message, style={'color': 'green', 'marginTop': '10px'}) # Success message in green
-        raw_head_str = df.head().to_string()
+    @app.callback(
+        [Output('output-status', 'children'),
+         Output('data-table', 'columns'),
+         Output('data-table', 'data'),
+         Output('data-table', 'page_size'),
+         Output('stored-data', 'data')], # Output to store the full data
+        [Input('upload-data', 'contents'),
+         Input('rows-per-page-dropdown', 'value')], # Input for page size
+        [State('upload-data', 'filename')]
+    )
+    def update_table_on_upload_or_pagesize(contents, page_size, filename):
+        print(f"--- update_table_on_upload_or_pagesize triggered ---")
+        print(f"Filename: {filename}, Page size: {page_size}")
 
-        # --- DataTable and Pagination ---
-        page_current = 1
-        page_size = rows_per_page
-        page_count = (len(df) + page_size - 1) // page_size # Calculate total pages
+        if contents is None:
+            print("No contents, initial state or page size change without data.")
+            # Keep existing data if only page size changed, otherwise clear
+            # This logic needs refinement if you want to preserve data on page size change
+            # For simplicity now, we clear if no content, might need stored-data interaction
+            return "Please upload a CSV file.", [], [], page_size, None # Return empty table, updated page size
 
-        def generate_pagination_controls(page_current, page_count):
-            # Basic pagination controls
-            return html.Div([
-                html.Button("<<", id="page-back-to-first", disabled=page_current <= 1),
-                html.Button("<", id="page-previous", disabled=page_current <= 1),
-                html.Span(f"Page {page_current} of {page_count}", style={'margin': '0 10px'}),
-                html.Button(">", id="page-next", disabled=page_current >= page_count),
-                html.Button(">>", id="page-forward-to-last", disabled=page_current >= page_count),
-            ])
+        df, message = parse_csv_simple(contents, filename)
 
+        if df is not None:
+            print("DataFrame created, preparing data table output.")
+            status_div = html.Div(message, style={'color': 'green', 'marginTop': '10px'})
+            columns = [{"name": i, "id": i} for i in df.columns]
+            data = df.to_dict('records') # Provide the FULL data to DataTable
+            stored_data_json = df.to_json(orient='split') # Store the full data
 
-        pagination_controls = generate_pagination_controls(page_current, page_count)
+            # Reset page_current to 0 when new data is loaded? Usually good UX.
+            # DataTable's page_current is handled internally, but you might
+            # want to reset it visually. We don't directly control it here.
 
-        # Format data for DataTable
-        data = df.iloc[0:page_size].to_dict('records') # Display first page
-        columns = [{"name": i, "id": i} for i in df.columns]
-
-        data_table = dash_table.DataTable(
-            data=data,
-            columns=columns,
-            page_current=page_current,
-            page_size=page_size,
-            page_count=page_count,
-            id='data-table' # Important: Keep DataTable id for future callbacks
-        )
-        
-        stored_data_json = df.to_json(orient='split') # Convert DataFrame to JSON
-
-        return status_div, stored_data_json # Return status and stored data
-    else:
-        print(f"DataFrame is None. Error: {message}")
-        status_div = html.Div(message, style={'color': 'red', 'marginTop': '10px'}) # Error message in red
-        return status_div, None # Return None for stored data in case of error
-
-# --- Callback registration ---
-# Note: The @app.callback decorator needs the 'app' instance imported from app.py
-def register_callbacks(app): # Define a function to register callbacks, taking app as argument
-    print("register_callbacks function called in pages/data_upload.py") # Add this print statement
-    update_output_callback =  app.callback( # Use app instance passed to layout function
-        [
-     Output('output-status', 'children'), # More general Output ID
-     Output('stored-data', 'data') # Output to store
-          ],
-        [Input('upload-data', 'contents')], # More general Input ID
-        [State('upload-data', 'filename'), # More general State ID
-         Input('rows-per-page-dropdown', 'value')], # rows_per-page as Input, after filename
-    )(update_output) # Register the updated callback function name
-    return update_output_callback
+            return status_div, columns, data, page_size, stored_data_json
+        else:
+            print(f"DataFrame is None. Error: {message}")
+            status_div = html.Div(f"Error: {message}", style={'color': 'red', 'marginTop': '10px'})
+            # Return empty table state on error
+            return status_div, [], [], page_size, None
