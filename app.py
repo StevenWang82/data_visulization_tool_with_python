@@ -27,7 +27,7 @@ def serve_layout():
     return dbc.Container([ # Use Bootstrap container for layout
         dcc.Location(id='url', refresh=False), # Component to track URL changes
         dcc.Store(id='stored-data'), # Store component to hold data across pages
-        html.H1("Multi-Page Data Visualization Tool", className="my-4"), # Add margin with Bootstrap class
+        html.H1("資料視覺化工具(Data Visualization Tool)", className="my-4"), # Add margin with Bootstrap class
         navbar,
         html.Div(id='page-content') # Content will be loaded here based on URL
     ], fluid=True) # Use fluid container to take full width

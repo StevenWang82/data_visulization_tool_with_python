@@ -8,7 +8,7 @@ import io
 
 # --- Layout ---
 layout = html.Div([
-    html.H2("載入 CSV 資料"),
+    html.H3("載入 CSV 資料"),
     dcc.Upload(
         id='upload-data',
         children=html.Div(['拖放或 ', html.A('選擇 CSV 檔案')]),
