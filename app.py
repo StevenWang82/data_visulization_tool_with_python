@@ -1,37 +1,38 @@
 import dash
+import dash_bootstrap_components as dbc
 from dash import dcc, html, Input, Output
 # DO NOT import page modules here directly if they import 'app' - causes circular import
 # Instead, import them when needed or structure differently if possible.
-# However, for registering callbacks, we might need to import the registration function.
-from pages import data_upload # Assuming register_callbacks is in data_upload
+# Import page modules and their callback registration functions if applicable
+from pages import data_upload, distribution, relationship, bar_plot, heatmap # Import all page modules
 
-# Initialize the Dash app
-app = dash.Dash(__name__, suppress_callback_exceptions=True)
+# Initialize the Dash app with Bootstrap theme
+app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server # Expose server variable for deployment
 
-# Define the navigation bar
-navbar = html.Nav([
-    # Add '/' as the base path for Data Upload if it's the default landing page
-    dcc.Link('Data Upload', href='/'),
-    html.Span(" | ", style={'padding': '0 10px'}),
-    dcc.Link('Distribution Plot', href='/distribution'),
-    html.Span(" | ", style={'padding': '0 10px'}),
-    dcc.Link('Relationship Plot', href='/relationship'),
-    html.Span(" | ", style={'padding': '0 10px'}),
-    dcc.Link('Bar Plot', href='/bar'),
-    html.Span(" | ", style={'padding': '0 10px'}),
-    dcc.Link('Heatmap', href='/heatmap'),
-], style={'marginBottom': '20px', 'padding': '10px', 'borderBottom': '1px solid #ccc'})
+# Define the navigation bar using Bootstrap components for better styling potential
+# Using dbc.Nav for better Bootstrap integration
+navbar = dbc.Nav(
+    [
+        dbc.NavItem(dbc.NavLink('Data Upload', href='/', active="exact")),
+        dbc.NavItem(dbc.NavLink('Distribution Plot', href='/distribution', active="exact")),
+        dbc.NavItem(dbc.NavLink('Relationship Plot', href='/relationship', active="exact")),
+        dbc.NavItem(dbc.NavLink('Bar Plot', href='/bar', active="exact")),
+        dbc.NavItem(dbc.NavLink('Heatmap', href='/heatmap', active="exact")),
+    ],
+    pills=True, # Use pills style for navigation
+    className="mb-3", # Add margin bottom
+)
 
-# Main application layout using a function to avoid potential direct layout assignment issues
+# Main application layout using a function and Bootstrap container
 def serve_layout():
-    return html.Div([
+    return dbc.Container([ # Use Bootstrap container for layout
         dcc.Location(id='url', refresh=False), # Component to track URL changes
         dcc.Store(id='stored-data'), # Store component to hold data across pages
-        html.H1("Multi-Page Data Visualization Tool"),
+        html.H1("Multi-Page Data Visualization Tool", className="my-4"), # Add margin with Bootstrap class
         navbar,
         html.Div(id='page-content') # Content will be loaded here based on URL
-    ])
+    ], fluid=True) # Use fluid container to take full width
 
 app.layout = serve_layout # Assign the layout function
 
@@ -39,55 +40,38 @@ app.layout = serve_layout # Assign the layout function
 # This assumes data_upload.py has a function register_callbacks(app)
 # Make sure data_upload.py doesn't import 'app' directly at the top level
 # causing circular imports. If it does, you might need a different pattern
-# (like explicitly importing callbacks or using a central callback manager).
-try:
-    # Assuming the register_callbacks function exists in pages.data_upload
-    data_upload.register_callbacks(app)
-    print("Successfully registered callbacks from data_upload.")
-except AttributeError:
-    print("Warning: 'register_callbacks' function not found in pages.data_upload.")
-except ImportError:
-    print("Warning: Could not import pages.data_upload to register callbacks.")
+# Register callbacks from imported page modules
+# This pattern assumes each page module has a 'register_callbacks(app)' function
+# if it defines callbacks that need the app instance.
+# If a page only has layout and no callbacks needing 'app', it doesn't need this.
+for page_module in [data_upload, distribution, relationship, bar_plot, heatmap]: # Register all imported modules
+    try:
+        page_module.register_callbacks(app)
+        print(f"Successfully registered callbacks from {page_module.__name__}.")
+    except AttributeError:
+        print(f"Warning: 'register_callbacks' function not found in {page_module.__name__}.")
+    except Exception as e:
+        print(f"Error registering callbacks for {page_module.__name__}: {e}")
 
 
 # Callback to render page content based on URL
 @app.callback(Output('page-content', 'children'),
               [Input('url', 'pathname')])
 def display_page(pathname):
-    # Import layouts dynamically INSIDE the callback
-    # Ensure these page modules DO NOT try to import the 'app' instance directly
-    # at the top level, pass 'app' to them if needed via functions.
-    try:
-        if pathname == '/distribution':
-            from pages import distribution
-            # Assuming distribution page also has callbacks, register them similarly
-            # distribution.register_callbacks(app) # Add if needed
-            return distribution.layout
-        elif pathname == '/relationship':
-            from pages import relationship
-            # relationship.register_callbacks(app) # Add if needed
-            return relationship.layout
-        elif pathname == '/bar':
-            from pages import bar_plot
-            # bar_plot.register_callbacks(app) # Add if needed
-            return bar_plot.layout
-        elif pathname == '/heatmap':
-            from pages import heatmap
-            # heatmap.register_callbacks(app) # Add if needed
-            return heatmap.layout
-        elif pathname == '/' or pathname == '/data_upload': # Handle root and explicit path
-            # No need to register callbacks here, done outside
-            # We just need the layout from data_upload
-            from pages import data_upload
-            return data_upload.layout
-        else:
-            return html.Div("404 Page not found")
-    except ImportError as e:
-        print(f"Error importing page module for {pathname}: {e}")
-        return html.Div(f"Error loading page {pathname}. Check imports.")
-    except Exception as e:
-        print(f"An unexpected error occurred rendering page {pathname}: {e}")
-        return html.Div(f"An error occurred while loading the page.")
+    # Return layout based on pathname from pre-imported modules
+    if pathname == '/distribution':
+        return distribution.layout
+    elif pathname == '/relationship':
+        return relationship.layout
+    elif pathname == '/bar':
+        return bar_plot.layout
+    elif pathname == '/heatmap':
+        return heatmap.layout
+    elif pathname == '/' or pathname == '/data_upload': # Handle root and explicit path
+        return data_upload.layout
+    else:
+        return html.Div("404 Page not found")
+    # Removed dynamic imports from display_page
 
 
 if __name__ == '__main__':
