@@ -1,9 +1,7 @@
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html, Input, Output
-# DO NOT import page modules here directly if they import 'app' - causes circular import
-# Instead, import them when needed or structure differently if possible.
-# Import page modules and their callback registration functions if applicable
+
 from pages import data_upload, distribution, relationship, bar_plot, heatmap # Import all page modules
 
 # Initialize the Dash app with Bootstrap theme
@@ -14,11 +12,11 @@ server = app.server # Expose server variable for deployment
 # Using dbc.Nav for better Bootstrap integration
 navbar = dbc.Nav(
     [
-        dbc.NavItem(dbc.NavLink('Data Upload', href='/', active="exact")),
-        dbc.NavItem(dbc.NavLink('Distribution Plot', href='/distribution', active="exact")),
-        dbc.NavItem(dbc.NavLink('Relationship Plot', href='/relationship', active="exact")),
-        dbc.NavItem(dbc.NavLink('Bar Plot', href='/bar', active="exact")),
-        dbc.NavItem(dbc.NavLink('Heatmap', href='/heatmap', active="exact")),
+        dbc.NavItem(dbc.NavLink('資料上傳 (data loading)', href='/', active="exact")),
+        dbc.NavItem(dbc.NavLink('分布圖 (distribution plot)', href='/distribution', active="exact")),
+        dbc.NavItem(dbc.NavLink('關聯分析 (relationships)', href='/relationship', active="exact")),
+        dbc.NavItem(dbc.NavLink('長條圖 (bar plot)', href='/bar', active="exact")),
+        dbc.NavItem(dbc.NavLink('熱力圖 (Heatmap)', href='/heatmap', active="exact")),
     ],
     pills=True, # Use pills style for navigation
     className="mb-3", # Add margin bottom
