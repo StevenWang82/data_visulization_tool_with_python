@@ -1,6 +1,7 @@
 import dash
 from dash import dcc, html, Input, Output, State
 import plotly.express as px
+import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 import io
@@ -73,7 +74,25 @@ def register_callbacks(app):
 
         try:
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
-            
+
+            # Check for grouping variable unique value count
+            if group_var and df[group_var].dtype in ['object', 'category'] and df[group_var].nunique() > 20:
+                warning_message = f"分組變數 '{group_var}' 的唯一值超過 20 個，不適合分組繪圖。"
+                fig = go.Figure()
+                fig.add_annotation(
+                    text=warning_message,
+                    xref="paper", yref="paper",
+                    x=0.5, y=0.5, showarrow=False,
+                    font=dict(size=14)
+                )
+                fig.update_layout(
+                    title="警告",
+                    xaxis={'visible': False},
+                    yaxis={'visible': False},
+                    plot_bgcolor='white' # Optional: set background color
+                )
+                return fig
+
             title = f"{var1} 和 {var2} 的關係"
             if group_var:
                 title += f"\n依據 {group_var} 分組"
@@ -106,12 +125,26 @@ def register_callbacks(app):
 
         try:
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
-            
+
             plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']
             plt.rcParams['axes.unicode_minus'] = False
-            
+
+            # Check for grouping variable unique value count
+            if group_var and df[group_var].dtype in ['object', 'category'] and df[group_var].nunique() > 20:
+                warning_message = f"分組變數 '{group_var}' 的唯一值超過 20 個，\n不適合分組繪圖。"
+                fig_warn, ax_warn = plt.subplots(figsize=(8, 2), tight_layout=True)
+                ax_warn.text(0.5, 0.5, warning_message, ha='center', va='center', fontsize=12, color='red')
+                ax_warn.axis('off') # Hide axes
+
+                buf = BytesIO()
+                fig_warn.savefig(buf, format="png")
+                buf.seek(0)
+                data = base64.b64encode(buf.getvalue()).decode("utf8")
+                plt.close(fig_warn) # Close the warning figure
+                return f"data:image/png;base64,{data}"
+
             fig_static, ax = plt.subplots(figsize=(8, 5), tight_layout=True)
-            
+
             if group_var:
                 sns.scatterplot(data=df, x=var1, y=var2, hue=group_var, ax=ax)
             else:

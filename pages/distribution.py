@@ -1,6 +1,7 @@
 import dash
 from dash import dcc, html, Input, Output, State
 import plotly.express as px
+import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 import io
@@ -85,8 +86,15 @@ def register_callbacks(app):
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
 
             # Check unique values for grouping variable
-            if grouping_col and df[grouping_col].nunique() > 20:
-                return px.scatter(title=f"分組變數 '{grouping_col}' 的唯一值超過 20 個，不適合分組繪圖。")
+            if grouping_col and df[grouping_col].dtype in ['object', 'category'] and df[grouping_col].nunique() > 20:
+                warning_message = f"分組變數 '{grouping_col}' 的唯一值超過 20 個，不適合分組繪圖。"
+                fig = go.Figure()
+                fig.add_annotation(
+                    text=warning_message, xref="paper", yref="paper",
+                    x=0.5, y=0.5, showarrow=False, font=dict(size=14)
+                )
+                fig.update_layout(title="警告", xaxis={'visible': False}, yaxis={'visible': False}, plot_bgcolor='white')
+                return fig
 
             plot_type_names = {
                 'histogram': '直方圖',
@@ -134,10 +142,17 @@ def register_callbacks(app):
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
 
             # Check unique values for grouping variable
-            if grouping_col and df[grouping_col].nunique() > 20:
-                error_message = f"分組變數 '{grouping_col}' 的唯一值超過 20 個，不適合分組繪圖。"
-                # Return a placeholder image with the error message
-                return f"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='100'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='12px' fill='orange'%3E{error_message}%3C/text%3E%3C/svg%3E"
+            if grouping_col and df[grouping_col].dtype in ['object', 'category'] and df[grouping_col].nunique() > 20:
+                warning_message = f"分組變數 '{grouping_col}' 的唯一值超過 20 個，\n不適合分組繪圖。"
+                fig_warn, ax_warn = plt.subplots(figsize=(8, 2), tight_layout=True)
+                ax_warn.text(0.5, 0.5, warning_message, ha='center', va='center', fontsize=12, color='red')
+                ax_warn.axis('off')
+                buf = BytesIO()
+                fig_warn.savefig(buf, format="png")
+                buf.seek(0)
+                data = base64.b64encode(buf.getvalue()).decode("utf8")
+                plt.close(fig_warn)
+                return f"data:image/png;base64,{data}"
 
             plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']  # 設置中文字體
             plt.rcParams['axes.unicode_minus'] = False  # 解決負號顯示問題
@@ -163,10 +178,12 @@ def register_callbacks(app):
         except Exception as e:
             print(f"生成靜態圖表時發生錯誤：{e}")
             error_message = f"錯誤：{e}"
+            # Return an SVG error placeholder
             return f"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='100'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='10px' fill='red'%3E{error_message}%3C/text%3E%3C/svg%3E"
-        # finally: # Ensure plot is closed even if errors occur before saving
-        #     if fig_static:
-        #         plt.close(fig_static) # This might be redundant if closed in try, but safe
+        finally:
+            # Ensure Matplotlib figure is closed
+            if 'fig_static' in locals() and fig_static:
+                 plt.close(fig_static)
 
     # Callback to populate dropdowns based on stored data
     @app.callback(

@@ -1,6 +1,7 @@
 import dash
 from dash import dcc, html, Input, Output, State
 import plotly.express as px
+import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 import io
@@ -88,17 +89,50 @@ def register_callbacks(app):
 
         try:
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
-            
+
+            # Check unique value count for category variable
+            if df[category_col].dtype in ['object', 'category'] and df[category_col].nunique() > 20:
+                warning_message = f"類別變數 '{category_col}' 的唯一值超過 20 個，不適合繪製長條圖。"
+                fig = go.Figure()
+                fig.add_annotation(
+                    text=warning_message, xref="paper", yref="paper",
+                    x=0.5, y=0.5, showarrow=False, font=dict(size=14)
+                )
+                fig.update_layout(title="警告", xaxis={'visible': False}, yaxis={'visible': False}, plot_bgcolor='white')
+                return fig
+
+            # Check unique value count for grouping variable
+            if group_col and df[group_col].dtype in ['object', 'category'] and df[group_col].nunique() > 20:
+                warning_message = f"分組變數 '{group_col}' 的唯一值超過 20 個，不適合分組繪圖。"
+                fig = go.Figure()
+                fig.add_annotation(
+                    text=warning_message, xref="paper", yref="paper",
+                    x=0.5, y=0.5, showarrow=False, font=dict(size=14)
+                )
+                fig.update_layout(title="警告", xaxis={'visible': False}, yaxis={'visible': False}, plot_bgcolor='white')
+                return fig
+
             title = f"{category_col} 的分布"
             if value_col:
                 title = f"{value_col} 依據 {category_col} 的分布"
             if group_col:
-                title += f"\n依據 {group_col} 分組"
+                title += f" (平均)\n依據 {group_col} 分組"
+            elif value_col:
+                 title = f"{value_col} (平均) 依據 {category_col} 的分布"
+
 
             if value_col:
-                fig = px.bar(df, x=category_col, y=value_col, color=group_col,
+                # Aggregate data to calculate the mean for Plotly
+                grouping_cols = [category_col]
+                if group_col:
+                    grouping_cols.append(group_col)
+                
+                agg_df = df.groupby(grouping_cols, observed=True)[value_col].mean().reset_index()
+                
+                fig = px.bar(agg_df, x=category_col, y=value_col, color=group_col,
                            title=title, barmode=bar_mode)
             else:
+                # For count plots, no aggregation needed beforehand
                 value_counts = df[category_col].value_counts().reset_index()
                 value_counts.columns = [category_col, '計數']
                 fig = px.bar(value_counts, x=category_col, y='計數',
@@ -107,7 +141,7 @@ def register_callbacks(app):
             fig.update_layout(
                 transition_duration=300,
                 xaxis_title=category_col,
-                yaxis_title=value_col if value_col else "計數"
+                yaxis_title=f"{value_col} (平均)" if value_col else "計數"
             )
             return fig
 
@@ -129,12 +163,38 @@ def register_callbacks(app):
 
         try:
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
-            
+
             plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']
             plt.rcParams['axes.unicode_minus'] = False
-            
+
+            # Check unique value count for category variable
+            if df[category_col].dtype in ['object', 'category'] and df[category_col].nunique() > 20:
+                warning_message = f"類別變數 '{category_col}' 的唯一值超過 20 個，\n不適合繪製長條圖。"
+                fig_warn, ax_warn = plt.subplots(figsize=(8, 2), tight_layout=True)
+                ax_warn.text(0.5, 0.5, warning_message, ha='center', va='center', fontsize=12, color='red')
+                ax_warn.axis('off')
+                buf = BytesIO()
+                fig_warn.savefig(buf, format="png")
+                buf.seek(0)
+                data = base64.b64encode(buf.getvalue()).decode("utf8")
+                plt.close(fig_warn)
+                return f"data:image/png;base64,{data}"
+
+            # Check unique value count for grouping variable
+            if group_col and df[group_col].dtype in ['object', 'category'] and df[group_col].nunique() > 20:
+                warning_message = f"分組變數 '{group_col}' 的唯一值超過 20 個，\n不適合分組繪圖。"
+                fig_warn, ax_warn = plt.subplots(figsize=(8, 2), tight_layout=True)
+                ax_warn.text(0.5, 0.5, warning_message, ha='center', va='center', fontsize=12, color='red')
+                ax_warn.axis('off')
+                buf = BytesIO()
+                fig_warn.savefig(buf, format="png")
+                buf.seek(0)
+                data = base64.b64encode(buf.getvalue()).decode("utf8")
+                plt.close(fig_warn)
+                return f"data:image/png;base64,{data}"
+
             fig_static, ax = plt.subplots(figsize=(10, 6), tight_layout=True)
-            
+
             if value_col:
                 if group_col:
                     sns.barplot(data=df, x=category_col, y=value_col, hue=group_col, ax=ax)
@@ -144,16 +204,18 @@ def register_callbacks(app):
                 sns.countplot(data=df, x=category_col, hue=group_col, ax=ax)
             
             title = f"{category_col} 的分布"
+            y_label = "計數" # Default for countplot
             if value_col:
-                title = f"{value_col} 依據 {category_col} 的分布"
+                title = f"{value_col} (平均) 依據 {category_col} 的分布"
+                y_label = f"{value_col} (平均)"
             if group_col:
                 title += f"\n依據 {group_col} 分組"
-            
+
             ax.set_title(title)
             ax.set_xlabel(category_col)
-            ax.set_ylabel(value_col if value_col else "計數")
-            
-            # 如果類別標籤太長，旋轉它們
+            ax.set_ylabel(y_label)
+
+            # If category labels are long, rotate them
             plt.xticks(rotation=45, ha='right')
 
             buf = BytesIO()
