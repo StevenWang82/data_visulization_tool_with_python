@@ -83,7 +83,11 @@ def register_callbacks(app):
 
         try:
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
-            
+
+            # Check unique values for grouping variable
+            if grouping_col and df[grouping_col].nunique() > 20:
+                return px.scatter(title=f"分組變數 '{grouping_col}' 的唯一值超過 20 個，不適合分組繪圖。")
+
             plot_type_names = {
                 'histogram': '直方圖',
                 'box': '箱型圖',
@@ -128,7 +132,13 @@ def register_callbacks(app):
 
         try:
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
-            
+
+            # Check unique values for grouping variable
+            if grouping_col and df[grouping_col].nunique() > 20:
+                error_message = f"分組變數 '{grouping_col}' 的唯一值超過 20 個，不適合分組繪圖。"
+                # Return a placeholder image with the error message
+                return f"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='100'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='12px' fill='orange'%3E{error_message}%3C/text%3E%3C/svg%3E"
+
             plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']  # 設置中文字體
             plt.rcParams['axes.unicode_minus'] = False  # 解決負號顯示問題
             

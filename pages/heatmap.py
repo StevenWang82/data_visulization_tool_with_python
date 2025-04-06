@@ -137,8 +137,45 @@ def register_callbacks(app):
             return f"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='100'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='10px' fill='red'%3E{error_message}%3C/text%3E%3C/svg%3E"
         finally:
             # Ensure Matplotlib figure is closed
-            if fig_static:
+            if 'fig_static' in locals() and fig_static:
                 plt.close(fig_static)
+
+    # Callback to populate dropdowns based on stored data
+    @app.callback(
+        [Output('heatmap-columns-dropdown', 'options'),
+         Output('heatmap-columns-dropdown', 'value')],
+        [Input('stored-data', 'data')]
+    )
+    def update_heatmap_dropdown(stored_data_json):
+        default_return = ([], None) # Define default return tuple
+
+        if not stored_data_json:
+            print("update_heatmap_dropdown: No stored data.")
+            return default_return
+
+        try:
+            print("update_heatmap_dropdown: Reading stored data.")
+            df = pd.read_json(io.StringIO(stored_data_json), orient='split')
+
+            if df.empty:
+                 print("update_heatmap_dropdown: DataFrame is empty.")
+                 return default_return
+
+            # Identify numeric columns suitable for correlation heatmap
+            numeric_cols = df.select_dtypes(include=np.number).columns
+
+            # Create options only for numeric columns
+            numerical_options = [{'label': f"{col} (numeric)", 'value': col} for col in numeric_cols]
+
+            # Set default value (e.g., all numeric columns selected by default)
+            default_columns = numeric_cols.tolist() if not numeric_cols.empty else None
+
+            print("update_heatmap_dropdown: Success.")
+            return numerical_options, default_columns
+
+        except Exception as e:
+            print(f"Error updating heatmap dropdown: {e}")
+            return default_return # Return default tuple on error
 
 # --- End of Callback Registration ---
 
