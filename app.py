@@ -4,33 +4,37 @@ from dash import dcc, html, Input, Output
 
 from pages import data_upload, distribution, relationship, bar_plot, heatmap # 匯入所有頁面模組
 
-# 使用 Bootstrap 主題初始化 Dash 應用程式
-app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.BOOTSTRAP])
+# 使用 LUX Bootstrap 主題初始化 Dash 應用程式
+app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.LUX])
 server = app.server # 為了部署，公開 server 變數
 
-# 使用 Bootstrap 元件定義導覽列，以提供更好的樣式設計潛力
-# 使用 dbc.Nav 以達成更好的 Bootstrap 整合
-navbar = dbc.Nav(
-    [
-        dbc.NavItem(dbc.NavLink('資料上傳 (data loading)', href='/', active="exact")),
-        dbc.NavItem(dbc.NavLink('分布圖 (distribution plot)', href='/distribution', active="exact")),
-        dbc.NavItem(dbc.NavLink('關聯分析 (relationships)', href='/relationship', active="exact")),
-        dbc.NavItem(dbc.NavLink('長條圖 (bar plot)', href='/bar', active="exact")),
-        dbc.NavItem(dbc.NavLink('熱力圖 (Heatmap)', href='/heatmap', active="exact")),
+# 使用 dbc.NavbarSimple 建立更現代化的導覽列
+navbar = dbc.NavbarSimple(
+    children=[
+        dbc.NavItem(dbc.NavLink('資料上傳', href='/', active="exact")),
+        dbc.NavItem(dbc.NavLink('分布圖', href='/distribution', active="exact")),
+        dbc.NavItem(dbc.NavLink('關聯分析', href='/relationship', active="exact")),
+        dbc.NavItem(dbc.NavLink('長條圖', href='/bar', active="exact")),
+        dbc.NavItem(dbc.NavLink('熱力圖', href='/heatmap', active="exact")),
     ],
-    pills=True, # 使用膠囊 (pills) 樣式進行導覽
-    className="mb-3", # 新增底部邊距
+    brand="資料視覺化工具", # 在導覽列中加入品牌名稱
+    brand_href="/",
+    color="primary", # 設定導覽列顏色
+    dark=True, # 使用深色主題文字
+    sticky="top", # 將導覽列固定在頂部
+    className="mb-4", # 新增底部邊距
 )
 
 # 使用函式和 Bootstrap 容器定義主應用程式佈局
 def serve_layout():
-    return dbc.Container([ # 使用 Bootstrap 容器進行佈局
+    return html.Div([ # 使用 html.Div 作為最外層容器
         dcc.Location(id='url', refresh=False), # 用於追蹤 URL 變化的元件
         dcc.Store(id='stored-data'), # 用於跨頁面儲存資料的 Store 元件
-        html.H1("資料視覺化工具(Data Visualization Tool)", className="my-4"), # 使用 Bootstrap class 新增邊距
-        navbar,
-        html.Div(id='page-content') # 內容將根據 URL 載入此處
-    ], fluid=True) # 使用流體 (fluid) 容器以佔滿全部寬度，適用響應式設計
+        navbar, # 將導覽列放在頂部
+        dbc.Container([ # 使用標準容器來容納頁面內容，提供左右邊距
+            html.Div(id='page-content', className="mt-4") # 內容將根據 URL 載入此處，並增加頂部邊距
+        ], fluid=False) # 使用非流體容器，讓內容居中顯示
+    ])
 
 app.layout = serve_layout # 指派佈局函式
 
