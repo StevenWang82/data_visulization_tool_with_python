@@ -29,7 +29,11 @@ navbar = dbc.NavbarSimple(
 def serve_layout():
     return html.Div([ # 使用 html.Div 作為最外層容器
         dcc.Location(id='url', refresh=False), # 用於追蹤 URL 變化的元件
-        dcc.Store(id='stored-data'), # 用於跨頁面儲存資料的 Store 元件
+        # --- Moved Stores here for global access ---
+        dcc.Store(id='stored-data'), # Stores the original uploaded/converted DataFrame JSON
+        dcc.Store(id='filtered-data-store'), # Stores the currently displayed (potentially filtered) DataFrame JSON
+        dcc.Store(id='filter-state-store'), # Stores the state of the filter controls
+        # --- End Stores ---
         navbar, # 將導覽列放在頂部
         dbc.Container([ # 使用標準容器來容納頁面內容，提供左右邊距
             html.Div(id='page-content', className="mt-4") # 內容將根據 URL 載入此處，並增加頂部邊距

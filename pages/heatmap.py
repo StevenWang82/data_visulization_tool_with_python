@@ -57,7 +57,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('heatmap-plotly-graph', 'figure'),
-        [Input('stored-data', 'data'),
+        [Input('filtered-data-store', 'data'), # Changed from stored-data
          Input('heatmap-columns-dropdown', 'value'),
          Input('heatmap-plot-type-radio', 'value')]
     )
@@ -94,7 +94,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('heatmap-static-img', 'src'),
-        [Input('stored-data', 'data'),
+        [Input('filtered-data-store', 'data'), # Changed from stored-data
          Input('heatmap-columns-dropdown', 'value'),
          Input('heatmap-plot-type-radio', 'value')]
     )
@@ -144,7 +144,7 @@ def register_callbacks(app):
     @app.callback(
         [Output('heatmap-columns-dropdown', 'options'),
          Output('heatmap-columns-dropdown', 'value')],
-        [Input('stored-data', 'data')]
+        [Input('filtered-data-store', 'data')] # Changed from stored-data
     )
     def update_heatmap_dropdown(stored_data_json):
         default_return = ([], None) # Define default return tuple

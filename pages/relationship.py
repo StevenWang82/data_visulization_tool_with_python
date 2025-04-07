@@ -62,7 +62,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('relationship-plotly-graph', 'figure'),
-        [Input('stored-data', 'data'),
+        [Input('filtered-data-store', 'data'), # Changed from stored-data
          Input('rel-var1-dropdown', 'value'),
          Input('rel-var2-dropdown', 'value'),
          Input('rel-group-dropdown', 'value'),
@@ -113,7 +113,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('relationship-static-img', 'src'),
-        [Input('stored-data', 'data'),
+        [Input('filtered-data-store', 'data'), # Changed from stored-data
          Input('rel-var1-dropdown', 'value'),
          Input('rel-var2-dropdown', 'value'),
          Input('rel-group-dropdown', 'value'),
@@ -184,7 +184,7 @@ def register_callbacks(app):
          Output('rel-var1-dropdown', 'value'),
          Output('rel-var2-dropdown', 'value'),
          Output('rel-group-dropdown', 'value')],
-        [Input('stored-data', 'data')]
+        [Input('filtered-data-store', 'data')] # Changed from stored-data
     )
     def update_relationship_dropdowns(stored_data_json):
         default_return = ([], [], [], None, None, None) # Define default return tuple

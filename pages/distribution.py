@@ -72,7 +72,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('distribution-plotly-graph', 'figure'),
-        [Input('stored-data', 'data'),
+        [Input('filtered-data-store', 'data'), # Changed from stored-data to use filtered/latest data
          Input('dist-numerical-dropdown', 'value'),
          Input('dist-grouping-dropdown', 'value'),
          Input('dist-plotly-type-dropdown', 'value'),
@@ -129,7 +129,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('distribution-static-img', 'src'),
-        [Input('stored-data', 'data'),
+        [Input('filtered-data-store', 'data'), # Changed from stored-data to use filtered/latest data
          Input('dist-numerical-dropdown', 'value'),
          Input('dist-grouping-dropdown', 'value'),
          Input('dist-view-mode-radio', 'value')]
@@ -191,7 +191,7 @@ def register_callbacks(app):
          Output('dist-grouping-dropdown', 'options'),
          Output('dist-numerical-dropdown', 'value'),
          Output('dist-grouping-dropdown', 'value')],
-        [Input('stored-data', 'data')] # Removed view_mode trigger, dropdowns depend only on data
+        [Input('filtered-data-store', 'data')] # Changed from stored-data to use filtered/latest data for dropdown population
         # If you *really* want dropdowns to clear/reset on mode change, keep it,
         # but usually dropdowns should just reflect the available data columns.
     )

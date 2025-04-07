@@ -76,7 +76,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('bar-plotly-graph', 'figure'),
-        [Input('stored-data', 'data'),
+        [Input('filtered-data-store', 'data'), # Changed from stored-data
          Input('bar-category-dropdown', 'value'),
          Input('bar-value-dropdown', 'value'),
          Input('bar-group-dropdown', 'value'),
@@ -151,7 +151,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output('bar-static-img', 'src'),
-        [Input('stored-data', 'data'),
+        [Input('filtered-data-store', 'data'), # Changed from stored-data
          Input('bar-category-dropdown', 'value'),
          Input('bar-value-dropdown', 'value'),
          Input('bar-group-dropdown', 'value'),
@@ -243,7 +243,7 @@ def register_callbacks(app):
          Output('bar-category-dropdown', 'value'),
          Output('bar-value-dropdown', 'value'),
          Output('bar-group-dropdown', 'value')],
-        [Input('stored-data', 'data')]
+        [Input('filtered-data-store', 'data')] # Changed from stored-data
     )
     def update_bar_dropdowns(stored_data_json):
         default_return = ([], [], [], None, None, None) # Define default return tuple

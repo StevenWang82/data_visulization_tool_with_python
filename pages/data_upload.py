@@ -9,10 +9,7 @@ import json # 用於處理篩選狀態
 
 # --- 頁面佈局 ---
 layout = html.Div([
-    # Data Stores
-    dcc.Store(id='stored-data'), # Stores the original uploaded/converted DataFrame JSON
-    dcc.Store(id='filtered-data-store'), # Stores the currently displayed (potentially filtered) DataFrame JSON
-    dcc.Store(id='filter-state-store'), # Stores the state of the filter controls
+    # Data Stores are now defined globally in app.py
 
     html.H3("載入 CSV 資料"),
     dcc.Upload(
@@ -305,133 +302,80 @@ def extract_date_parts(df, column_name):
 def register_callbacks(app):
     print("register_callbacks function called in pages/data_upload.py")
 
-    # --- 主要回調：處理檔案上傳與頁面大小變更 ---
+    # --- 回調 1：處理檔案上傳 ---
     @app.callback(
-        [Output('output-status', 'children'),
-         Output('data-table', 'columns'),
+        [Output('stored-data', 'data'),
+         Output('filtered-data-store', 'data'),
+         Output('filter-state-store', 'data'),
+         Output('output-status', 'children'),
+         Output('filter-column-dropdown', 'options')],
+        [Input('upload-data', 'contents')],
+        [State('upload-data', 'filename')],
+        prevent_initial_call=True # Don't run on initial load
+    )
+    def handle_upload(contents, filename):
+        print(f"--- handle_upload triggered for file: {filename} ---")
+        if contents is None:
+            print("handle_upload: No content.")
+            # Don't clear existing data if no content is provided (e.g., initial load)
+            return no_update, no_update, no_update, "請上傳一個 CSV 檔案。", no_update
+
+        df, message = parse_csv_simple(contents, filename)
+
+        if df is not None:
+            print("檔案解析成功。")
+            status_msg = html.Div(message, style={'color': 'green'})
+            df_json = df.to_json(orient='split')
+            original_data_out = df_json # Store original data
+            filtered_data_out = df_json # Initially, filtered data is the same as original
+            filter_options_out = [{'label': col, 'value': col} for col in df.columns]
+            filter_state_out = {} # Clear any previous filter state
+            print("新資料已儲存至 stored-data 和 filtered-data-store。篩選下拉選單已更新。篩選狀態已清除。")
+            return original_data_out, filtered_data_out, filter_state_out, status_msg, filter_options_out
+        else: # Parse failed
+            print(f"檔案解析失敗: {message}")
+            status_msg = html.Div(f"錯誤: {message}", style={'color': 'red'})
+            # Clear stores and options on failure
+            return None, None, {}, status_msg, []
+
+    # --- 回調 2：更新表格顯示 (根據 filtered-data-store 和 page size) ---
+    @app.callback(
+        [Output('data-table', 'columns'),
          Output('data-table', 'data'),
          Output('data-table', 'page_size'),
          Output('category-overview-table', 'columns'),
          Output('category-overview-table', 'data'),
-         Output('category-overview-table', 'page_size'),
-         Output('stored-data', 'data'), # Output for original data
-         Output('filtered-data-store', 'data'), # Output for displayed data
-         Output('filter-column-dropdown', 'options'), # Output for filter dropdown
-         Output('filter-state-store', 'data')], # Output to clear filter state on new upload
-        [Input('upload-data', 'contents'),
+         Output('category-overview-table', 'page_size')],
+        [Input('filtered-data-store', 'data'), # Triggered when filtered data changes
          Input('rows-per-page-dropdown', 'value'),
-         Input('category-rows-per-page-dropdown', 'value'),
-         Input('filtered-data-store', 'data')], # Use filtered data to update tables on page change
-        [State('upload-data', 'filename'),
-         State('stored-data', 'data')] # Add state for original data to get columns
+         Input('category-rows-per-page-dropdown', 'value')]
     )
-    def update_outputs_on_upload_or_pagesize(contents, preview_page_size, category_page_size, filtered_data_json, filename, original_data_json):
+    def update_tables_on_data_or_pagesize(filtered_data_json, preview_page_size, category_page_size):
         ctx = callback_context
         triggered_input = ctx.triggered[0]['prop_id'] if ctx.triggered else 'initial load'
-        print(f"--- update_outputs_on_upload_or_pagesize triggered by: {triggered_input} ---")
-        print(f"Filename: {filename}, Preview Page Size: {preview_page_size}, Category Page Size: {category_page_size}")
-
-        # Initialize outputs
-        status_msg = "請上傳一個 CSV 檔案。"
-        preview_cols, preview_data = [], []
-        category_cols, category_data = [], []
-        original_data_out = no_update
-        filtered_data_out = no_update
-        filter_options_out = no_update
-        filter_state_out = no_update
+        print(f"--- update_tables_on_data_or_pagesize triggered by: {triggered_input} ---")
 
         current_preview_page_size = preview_page_size if preview_page_size is not None else 10
         current_category_page_size = category_page_size if category_page_size is not None else 10
 
-        # --- Case 1: New file upload ---
-        if triggered_input.startswith('upload-data'):
-            print("處理新上傳的檔案...")
-            df, message = parse_csv_simple(contents, filename)
-
-            if df is not None:
-                print("檔案解析成功。")
-                status_msg = html.Div(message, style={'color': 'green'})
-                df_json = df.to_json(orient='split')
-                original_data_out = df_json # Store original data
-                filtered_data_out = df_json # Initially, filtered data is the same as original
-                filter_options_out = [{'label': col, 'value': col} for col in df.columns]
-                filter_state_out = {} # Clear any previous filter state
-                # Update tables immediately with the new data
-                preview_cols = [{"name": i, "id": i} for i in df.columns]
-                preview_data = df.to_dict('records')
-                category_data, category_cols = generate_category_overview_data(df)
-                print("新資料已儲存至 stored-data 和 filtered-data-store。篩選下拉選單已更新。篩選狀態已清除。")
-            else: # Parse failed
-                print(f"檔案解析失敗: {message}")
-                status_msg = html.Div(f"錯誤: {message}", style={'color': 'red'})
-                original_data_out = None
-                filtered_data_out = None
-                filter_options_out = []
-                filter_state_out = {} # Clear filter state on error too
-                preview_cols, preview_data = [], []
-                category_cols, category_data = [], []
-
-        # --- Case 2: Page size change or initial load using stored (filtered) data ---
-        # Use filtered_data_json which comes from Input('filtered-data-store', 'data')
-        elif triggered_input.startswith(('rows-per-page-dropdown', 'category-rows-per-page-dropdown', 'filtered-data-store')) or \
-             (triggered_input == 'initial load' and filtered_data_json):
-            print(f"處理事件: {triggered_input} 或從 filtered-data-store 載入。")
-            if filtered_data_json:
-                print("從 filtered-data-store 載入現有資料...")
-                try:
-                    # Read the *filtered* data for display
-                    df_filtered = pd.read_json(io.StringIO(filtered_data_json), orient='split')
-                    preview_cols = [{"name": i, "id": i} for i in df_filtered.columns]
-                    preview_data = df_filtered.to_dict('records')
-                    category_data, category_cols = generate_category_overview_data(df_filtered)
-                    # Only update status if triggered by store load, not page size change
-                    if triggered_input.startswith('filtered-data-store') or triggered_input == 'initial load':
-                        status_msg = "使用已儲存的資料更新檢視。"
-                        print("使用 filtered-data-store 的資料更新表格。")
-                    else:
-                         print("使用 filtered-data-store 的資料更新表格 (頁面大小變更)。")
-                         status_msg = no_update # Don't change status on page size change
-
-                    # Filter options should always reflect original columns. Update them if original data exists.
-                    if original_data_json:
-                        try:
-                            df_original = pd.read_json(io.StringIO(original_data_json), orient='split')
-                            filter_options_out = [{'label': col, 'value': col} for col in df_original.columns]
-                            print("篩選下拉選單選項已根據原始資料更新。")
-                        except Exception as e_orig:
-                            print(f"從 stored-data 讀取欄位以更新篩選選項時發生錯誤: {e_orig}")
-                            filter_options_out = [] # Clear on error
-                    else:
-                         # If original data isn't available for some reason, try using filtered columns
-                         filter_options_out = [{'label': col, 'value': col} for col in df_filtered.columns]
-                         print("警告：無法讀取原始資料，篩選下拉選單選項基於過濾後的資料。")
-
-
-                except Exception as e:
-                    print(f"從 filtered-data-store 載入資料時發生錯誤: {e}")
-                    status_msg = html.Div(f"從 filtered-data-store 載入資料時發生錯誤: {e}", style={'color': 'red'})
-                    preview_cols, preview_data = [], []
-                    category_cols, category_data = [], []
-                    # Don't clear original_data_out here
-                    filtered_data_out = None # Clear filtered data on error
-                    filter_options_out = []
-            else:
-                print("無上傳內容且 filtered-data-store 中無資料。")
-                status_msg = "請上傳一個 CSV 檔案。"
-                filter_options_out = []
-
-        # --- Case 3: Initial load and no stored data ---
-        elif triggered_input == 'initial load' and not filtered_data_json:
-             print("初始載入，無資料。")
-             status_msg = "請上傳一個 CSV 檔案。"
-             filter_options_out = []
-
-
-        print("--- Main Callback 完成 ---")
-        return (status_msg,
-                preview_cols, preview_data, current_preview_page_size,
-                category_cols, category_data, current_category_page_size,
-                original_data_out, filtered_data_out, filter_options_out, filter_state_out)
+        if filtered_data_json:
+            print("從 filtered-data-store 載入資料以更新表格...")
+            try:
+                df_filtered = pd.read_json(io.StringIO(filtered_data_json), orient='split')
+                preview_cols = [{"name": i, "id": i} for i in df_filtered.columns]
+                preview_data = df_filtered.to_dict('records')
+                category_data, category_cols = generate_category_overview_data(df_filtered)
+                print("表格已根據 filtered-data-store 更新。")
+                return (preview_cols, preview_data, current_preview_page_size,
+                        category_cols, category_data, current_category_page_size)
+            except Exception as e:
+                print(f"從 filtered-data-store 載入資料以更新表格時發生錯誤: {e}")
+                # Return empty tables on error
+                return [], [], current_preview_page_size, [], [], current_category_page_size
+        else:
+            # No data in the store, return empty tables
+            print("filtered-data-store 中無資料，清除表格。")
+            return [], [], current_preview_page_size, [], [], current_category_page_size
 
     # --- 回調：開啟/關閉日期轉換彈出視窗 ---
     @app.callback(
@@ -495,7 +439,7 @@ def register_callbacks(app):
          Output('category-overview-table', 'data', allow_duplicate=True),
          Output('modal-date-column-dropdown', 'options', allow_duplicate=True),
          Output('filtered-data-store', 'data', allow_duplicate=True)], # Update filtered data as well
-        Input('modal-convert-date-button', 'n_clicks'),
+        [Input('modal-convert-date-button', 'n_clicks')], # Trigger
         [State('modal-date-column-dropdown', 'value'),
          State('modal-date-format-input', 'value'),
          State('stored-data', 'data')], # Read from original data
@@ -777,10 +721,10 @@ def register_callbacks(app):
          Output('data-table', 'data', allow_duplicate=True),
          Output('category-overview-table', 'columns', allow_duplicate=True),
          Output('category-overview-table', 'data', allow_duplicate=True)],
-        [Input('apply-filter-button', 'n_clicks')],
-        [State('stored-data', 'data'),
+        [Input('apply-filter-button', 'n_clicks')], # Trigger
+        [State('stored-data', 'data'), # Read original data
          State({'type': 'filter-control', 'index': dash.ALL, 'control': dash.ALL}, 'id'), # Get IDs of all controls
-         # Get specific properties for different control types
+         # Get specific properties for different control types (Dash matches these by order)
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'checklist'}, 'value'),
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'range-slider'}, 'value'), # Get RangeSlider value
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'date-range'}, 'start_date'),
@@ -1041,8 +985,8 @@ def register_callbacks(app):
          Output('data-table', 'data', allow_duplicate=True),
          Output('category-overview-table', 'columns', allow_duplicate=True),
          Output('category-overview-table', 'data', allow_duplicate=True),
-         Output('filter-column-dropdown', 'value', allow_duplicate=True)], # Clear selected columns
-        [Input('reset-filter-button', 'n_clicks')],
+         Output('filter-column-dropdown', 'value', allow_duplicate=True)], # Clear selected columns in dropdown
+        [Input('reset-filter-button', 'n_clicks')], # Trigger
         [State('stored-data', 'data')], # Get original data
         prevent_initial_call=True
     )
