@@ -241,7 +241,8 @@ def generate_category_overview_data(df):
 
         stats = {'mean': 'N/A', 'std': 'N/A', 'min': 'N/A', 'max': 'N/A'}
         if pd.api.types.is_numeric_dtype(col_data) and not pd.api.types.is_bool_dtype(col_data):
-            numeric_data = col_data.dropna()
+            # Ensure data is numeric before calculating stats
+            numeric_data = pd.to_numeric(col_data, errors='coerce').dropna()
             if not numeric_data.empty:
                 try:
                     stats['mean'] = f"{numeric_data.mean():.2f}" if pd.notna(numeric_data.mean()) else 'N/A'
@@ -617,7 +618,6 @@ def register_callbacks(app):
                     continue
 
                 col_series = df[col]
-                col_unique_id_prefix = f"filter-{col}-" # Unique prefix for this column's controls
                 col_filter_state = filter_state.get(col, {}) # Get saved state for this column
 
                 control_card_content = [dbc.Label(f"篩選欄位: {col} ({col_series.dtype})", className="fw-bold")]
@@ -625,7 +625,8 @@ def register_callbacks(app):
                 # --- 類別變數 (Object/String/Category) ---
                 if pd.api.types.is_object_dtype(col_series) or pd.api.types.is_string_dtype(col_series) or pd.api.types.is_categorical_dtype(col_series):
                     unique_values = col_series.unique()
-                    if len(unique_values) < 20:
+                    # Limit checklist options for performance and usability
+                    if len(unique_values) < 50: # Increased limit slightly
                         options = [{'label': str(val), 'value': str(val)} for val in unique_values if pd.notna(val)]
                         # Restore checked values from state if available
                         value = col_filter_state.get('values', [opt['value'] for opt in options]) # Default to all selected
@@ -639,52 +640,86 @@ def register_callbacks(app):
                             )
                         )
                     else:
-                        control_card_content.append(html.P(f"欄位 '{col}' 的唯一值過多 ({len(unique_values)})，無法進行類別篩選。", className="text-muted small"))
+                        control_card_content.append(html.P(f"欄位 '{col}' 的唯一值過多 ({len(unique_values)})，暫不提供類別篩選。", className="text-muted small"))
 
                 # --- 數值變數 (Integer/Float) ---
                 elif pd.api.types.is_numeric_dtype(col_series) and not pd.api.types.is_bool_dtype(col_series):
-                    min_val = col_series.min()
-                    max_val = col_series.max()
-                    # Restore min/max values from state if available
-                    from_value = col_filter_state.get('from', min_val)
-                    to_value = col_filter_state.get('to', max_val)
-                    control_card_content.append(
-                        dbc.Row([
-                            dbc.Col(
-                                dbc.InputGroup([
-                                    dbc.InputGroupText(">="),
-                                    dbc.Input(id={'type': 'filter-control', 'index': col, 'control': 'min'}, type='number', value=from_value, placeholder=f"最小值 ({min_val:.2f})", step='any'),
-                                ]), width=6
-                            ),
-                            dbc.Col(
-                                dbc.InputGroup([
-                                    dbc.InputGroupText("<="),
-                                    dbc.Input(id={'type': 'filter-control', 'index': col, 'control': 'max'}, type='number', value=to_value, placeholder=f"最大值 ({max_val:.2f})", step='any'),
-                                ]), width=6
+                    numeric_col = pd.to_numeric(col_series, errors='coerce').dropna()
+                    if not numeric_col.empty:
+                        # Round min/max and determine step for 2 decimal places
+                        is_integer = pd.api.types.is_integer_dtype(numeric_col)
+                        if is_integer:
+                            min_val = np.floor(numeric_col.min())
+                            max_val = np.ceil(numeric_col.max())
+                            step = 1
+                            mark_format = '{:.0f}' # Format for integers
+                        else: # Float
+                            min_val = np.round(numeric_col.min(), 2)
+                            max_val = np.round(numeric_col.max(), 2)
+                            step = 0.01
+                            mark_format = '{:.2f}' # Format for floats
+
+                        # Ensure min_val is strictly less than max_val for linspace/slider
+                        if min_val >= max_val:
+                             if is_integer: max_val = min_val + 1
+                             else: max_val = min_val + 0.01 # Add minimal step if equal after rounding
+
+                        # Restore slider range from state if available, ensuring it respects rounded min/max
+                        saved_range = col_filter_state.get('range', [min_val, max_val])
+                        # Clamp saved range to the actual min/max
+                        slider_value = [max(min_val, saved_range[0]), min(max_val, saved_range[1])]
+
+
+                        # Generate marks using the rounded values and appropriate format
+                        marks_dict = {}
+                        try:
+                            # Generate 5 marks including endpoints
+                            mark_values = np.linspace(min_val, max_val, 5)
+                            marks_dict = {num: mark_format.format(num) for num in mark_values}
+                        except Exception as mark_err:
+                             print(f"Could not generate marks for {col}: {mark_err}. Using min/max only.")
+                             marks_dict = {min_val: mark_format.format(min_val), max_val: mark_format.format(max_val)}
+
+
+                        control_card_content.append(
+                            dcc.RangeSlider(
+                                id={'type': 'filter-control', 'index': col, 'control': 'range-slider'},
+                                min=min_val,
+                                max=max_val,
+                                step=step,
+                                value=slider_value,
+                                marks=marks_dict, # Use the generated marks
+                                tooltip={"placement": "bottom", "always_visible": True}, # Tooltip will show values rounded by step
+                                className="mb-4" # Add margin bottom
                             )
-                        ])
-                    )
+                        )
+                    else:
+                         control_card_content.append(html.P(f"欄位 '{col}' 不包含有效的數值資料。", className="text-muted small"))
+
 
                 # --- 日期時間變數 ---
                 elif pd.api.types.is_datetime64_any_dtype(col_series):
-                    min_date = col_series.min().date() if pd.notna(col_series.min()) else None
-                    max_date = col_series.max().date() if pd.notna(col_series.max()) else None
-                    # Restore start/end dates from state if available
-                    start_date = col_filter_state.get('start_date', min_date)
-                    end_date = col_filter_state.get('end_date', max_date)
-                    control_card_content.append(
-                        dcc.DatePickerRange(
-                            id={'type': 'filter-control', 'index': col, 'control': 'date-range'},
-                            min_date_allowed=min_date,
-                            max_date_allowed=max_date,
-                            initial_visible_month=start_date or min_date,
-                            start_date=start_date,
-                            end_date=end_date,
-                            display_format='YYYY-MM-DD',
-                            className="mb-2"
+                    datetime_col = pd.to_datetime(col_series, errors='coerce').dropna()
+                    if not datetime_col.empty:
+                        min_date = datetime_col.min().date()
+                        max_date = datetime_col.max().date()
+                        # Restore start/end dates from state if available
+                        start_date = col_filter_state.get('start_date', min_date)
+                        end_date = col_filter_state.get('end_date', max_date)
+                        control_card_content.append(
+                            dcc.DatePickerRange(
+                                id={'type': 'filter-control', 'index': col, 'control': 'date-range'},
+                                min_date_allowed=min_date,
+                                max_date_allowed=max_date,
+                                initial_visible_month=start_date or min_date,
+                                start_date=start_date,
+                                end_date=end_date,
+                                display_format='YYYY-MM-DD',
+                                className="mb-2"
+                            )
                         )
-                    )
-                    # Add year/month/day filters? Maybe later enhancement.
+                    else:
+                        control_card_content.append(html.P(f"欄位 '{col}' 不包含有效的日期資料。", className="text-muted small"))
 
                 # --- 其他類型 (Boolean, etc.) ---
                 else:
@@ -697,6 +732,8 @@ def register_callbacks(app):
 
         except Exception as e:
             print(f"Error generating filter controls: {e}")
+            import traceback
+            traceback.print_exc()
             return [html.Div(f"生成篩選控制項時發生錯誤: {e}", style={'color': 'red'})]
 
 
@@ -712,10 +749,9 @@ def register_callbacks(app):
         [Input('apply-filter-button', 'n_clicks')],
         [State('stored-data', 'data'),
          State({'type': 'filter-control', 'index': dash.ALL, 'control': dash.ALL}, 'id'), # Get IDs of all controls
-         # Get specific properties instead of just 'value' for more complex controls like DatePickerRange
+         # Get specific properties for different control types
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'checklist'}, 'value'),
-         State({'type': 'filter-control', 'index': dash.ALL, 'control': 'min'}, 'value'),
-         State({'type': 'filter-control', 'index': dash.ALL, 'control': 'max'}, 'value'),
+         State({'type': 'filter-control', 'index': dash.ALL, 'control': 'range-slider'}, 'value'), # Get RangeSlider value
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'date-range'}, 'start_date'),
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'date-range'}, 'end_date'),
          State('filter-column-dropdown', 'value')], # Get the list of columns selected for filtering
@@ -724,136 +760,157 @@ def register_callbacks(app):
     def apply_filters(n_clicks, stored_data_json,
                       filter_control_ids, # All control IDs
                       checklist_values, # Values from checklists
-                      min_values, # Values from min inputs
-                      max_values, # Values from max inputs
+                      range_slider_values, # Values from range sliders
                       start_dates, # Start dates from date pickers
                       end_dates, # End dates from date pickers
                       selected_filter_columns):
-        print(f"--- apply_filters triggered (n_clicks={n_clicks}) ---")
+        print(f"--- apply_filters triggered ---")
+        # Print received values for debugging
+        print(f"Received checklist_values: {checklist_values}")
+        print(f"Received range_slider_values: {range_slider_values}")
+        print(f"Received start_dates: {start_dates}")
+        print(f"Received end_dates: {end_dates}")
+        print(f"Received filter_control_ids: {filter_control_ids}")
+
         if not n_clicks or not stored_data_json or not selected_filter_columns:
             print("Apply filter conditions not met (no click, data, or selected columns).")
             return no_update, no_update, "請先選擇欄位並設定篩選條件。", no_update, no_update, no_update, no_update
 
         try:
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
-            df_filtered = df.copy() # Start with a copy of the original data
-            current_filter_state = {} # To store the applied filter values
-            status_messages = []
+            current_filter_state = {} # To store the applied filter values for saving state
+            status_messages = []      # To build the status message
+            combined_mask = pd.Series([True] * len(df)) # Start with a mask that includes all rows
 
-            # --- Helper function to find control value/property by ID ---
-            def get_control_prop(target_id_dict, prop_values_list, all_ids_list):
-                target_id_str = json.dumps(target_id_dict, sort_keys=True)
-                for i, current_id_dict in enumerate(all_ids_list):
-                    if json.dumps(current_id_dict, sort_keys=True) == target_id_str:
-                        # Ensure index is within bounds of the specific property list
-                        if i < len(prop_values_list):
-                             return prop_values_list[i]
-                        else:
-                             # This case might happen if a control type exists but its specific property list is shorter
-                             # (e.g., a checklist exists but checklist_values is somehow shorter than expected)
-                             print(f"Warning: Index mismatch for control ID {target_id_str}. Index {i} out of bounds for property list.")
-                             return None
-                return None # Control ID not found in the list of all IDs
+            # --- Helper function to find the index of a control in the ALL list ---
+            def find_control_index(col_name, control_type_str, all_id_dicts):
+                target_id_dict = {'type': 'filter-control', 'index': col_name, 'control': control_type_str}
+                for i, current_id_dict in enumerate(all_id_dicts):
+                    if current_id_dict == target_id_dict:
+                        return i
+                return -1 # Not found
 
             print(f"Selected columns for filtering: {selected_filter_columns}")
-            # Combine all property lists for easier debugging log (optional)
-            # print(f"Checklist values: {checklist_values}")
-            # print(f"Min values: {min_values}")
-            # print(f"Max values: {max_values}")
-            # print(f"Start dates: {start_dates}")
-            # print(f"End dates: {end_dates}")
 
-
+            # --- Apply filters by iterating through selected columns ---
             for col in selected_filter_columns:
-                col_series = df[col] # Use original series for type checking
-                col_filter_state_for_col = {} # Store state for this specific column
+                print(f"--- Processing Column: {col} ---")
+                if col not in df.columns:
+                    print(f"Warning: Column '{col}' selected for filtering not found in DataFrame.")
+                    continue
+
+                col_series = df[col]
+                col_filter_state_for_col = {}
+                col_mask = pd.Series([True] * len(df)) # Start with True for this column's mask
 
                 # --- Apply Categorical Filter ---
-                checklist_id = {'type': 'filter-control', 'index': col, 'control': 'checklist'}
-                # Find the corresponding value using the helper
-                selected_values = get_control_prop(checklist_id, checklist_values, filter_control_ids)
-                if selected_values is not None: # Check if the checklist exists and has a value
-                     all_unique_values = [str(v) for v in df[col].unique() if pd.notna(v)]
-                     # Filter only if not all values are selected
-                     if set(selected_values) != set(all_unique_values):
-                         print(f"Applying categorical filter on '{col}': Keep values {selected_values}")
-                         # Convert selected values to the original dtype if possible to avoid type errors during filtering
-                         try:
-                             typed_selected_values = pd.Series(selected_values).astype(df[col].dtype).tolist()
-                             df_filtered = df_filtered[df_filtered[col].isin(typed_selected_values)]
-                         except Exception as e:
-                             print(f"Warning: Could not convert selected values for column '{col}' to original dtype ({df[col].dtype}). Filtering with strings. Error: {e}")
-                             df_filtered = df_filtered[df_filtered[col].astype(str).isin(selected_values)]
-
-                         col_filter_state_for_col['values'] = selected_values
-                         status_messages.append(f"'{col}' in {selected_values}")
+                checklist_idx = find_control_index(col, 'checklist', filter_control_ids)
+                if checklist_idx != -1 and checklist_idx < len(checklist_values):
+                    selected_values = checklist_values[checklist_idx]
+                    if selected_values is not None:
+                        # Check if the filter is actually active (not all values selected)
+                        all_unique_values = [str(v) for v in col_series.unique() if pd.notna(v)]
+                        if set(selected_values) != set(all_unique_values):
+                            print(f"Applying categorical filter on '{col}': Keep values {selected_values}")
+                            try:
+                                typed_selected_values = pd.Series(selected_values).astype(col_series.dtype).tolist()
+                                col_mask &= col_series.isin(typed_selected_values)
+                            except Exception as e:
+                                print(f"Warning: Could not convert selected values for column '{col}' to original dtype ({col_series.dtype}). Filtering with strings. Error: {e}")
+                                col_mask &= col_series.astype(str).isin(selected_values)
+                            col_filter_state_for_col['values'] = selected_values
+                            status_messages.append(f"'{col}' in [{', '.join(map(str, selected_values))}]")
 
 
-                # --- Apply Numerical Filter ---
-                min_id = {'type': 'filter-control', 'index': col, 'control': 'min'}
-                max_id = {'type': 'filter-control', 'index': col, 'control': 'max'}
-                min_val_str = get_control_prop(min_id, min_values, filter_control_ids)
-                max_val_str = get_control_prop(max_id, max_values, filter_control_ids)
+                # --- Apply Numerical Filter (RangeSlider) ---
+                slider_idx = find_control_index(col, 'range-slider', filter_control_ids)
+                print(f"[Index Check - Slider] slider_idx: {slider_idx}")
+                if slider_idx != -1 and slider_idx < len(range_slider_values):
+                    slider_range = range_slider_values[slider_idx]
+                    print(f"[Value Check - Slider] Raw slider_range: {slider_range}")
+                    if slider_range: # Ensure it's not None or empty
+                        min_val, max_val = slider_range
+                        # Check if the slider range is different from the column's full range
+                        numeric_col_full = pd.to_numeric(col_series, errors='coerce').dropna()
+                        full_min = numeric_col_full.min()
+                        full_max = numeric_col_full.max()
 
-                # Check if min/max controls exist for this column before proceeding
-                if min_val_str is not None or max_val_str is not None:
-                    min_val = pd.to_numeric(min_val_str, errors='coerce')
-                    max_val = pd.to_numeric(max_val_str, errors='coerce')
-                    applied_numeric_filter = False
-                    if pd.notna(min_val):
-                        print(f"Applying numerical filter on '{col}': >= {min_val}")
-                        # Ensure column is numeric before comparison
-                        df_filtered = df_filtered[pd.to_numeric(df_filtered[col], errors='coerce') >= min_val]
-                        col_filter_state_for_col['from'] = min_val_str # Store original string input
-                        applied_numeric_filter = True
-                    if pd.notna(max_val):
-                        print(f"Applying numerical filter on '{col}': <= {max_val}")
-                        # Ensure column is numeric before comparison
-                        df_filtered = df_filtered[pd.to_numeric(df_filtered[col], errors='coerce') <= max_val]
-                        col_filter_state_for_col['to'] = max_val_str # Store original string input
-                        applied_numeric_filter = True
-                    if applied_numeric_filter:
-                         status_messages.append(f"'{col}' between {min_val_str or '-inf'} and {max_val_str or 'inf'}")
+                        if min_val > full_min or max_val < full_max:
+                            print(f"Applying numerical range filter on '{col}': between {min_val} and {max_val}")
+                            numeric_col = pd.to_numeric(col_series, errors='coerce')
+                            # Use between (inclusive by default)
+                            col_mask &= numeric_col.between(min_val, max_val, inclusive='both')
+                            col_filter_state_for_col['range'] = [min_val, max_val]
+                            status_messages.append(f"'{col}' between {min_val:.2f} and {max_val:.2f}")
+                        else:
+                             print(f"Skipping numerical filter for '{col}': Slider range covers full data range.")
+                    else:
+                        print(f"Skipping numerical filter for '{col}': Slider value is None or empty.")
 
 
                 # --- Apply Date Filter ---
-                date_range_id = {'type': 'filter-control', 'index': col, 'control': 'date-range'}
-                start_date_val = get_control_prop(date_range_id, start_dates, filter_control_ids)
-                end_date_val = get_control_prop(date_range_id, end_dates, filter_control_ids)
+                date_range_idx = find_control_index(col, 'date-range', filter_control_ids)
+                if date_range_idx != -1:
+                    start_date_val = start_dates[date_range_idx] if date_range_idx < len(start_dates) else None
+                    end_date_val = end_dates[date_range_idx] if date_range_idx < len(end_dates) else None
+                    print(f"[Value Check - Date] Raw start: '{start_date_val}', Raw end: '{end_date_val}'")
 
-                # Check if date range control exists for this column
-                if start_date_val is not None or end_date_val is not None:
-                    applied_date_filter = False
-                    # Ensure the column is datetime before filtering
-                    if not pd.api.types.is_datetime64_any_dtype(df_filtered[col]):
-                         print(f"Warning: Column '{col}' is not datetime. Attempting conversion for date filtering.")
-                         df_filtered[col] = pd.to_datetime(df_filtered[col], errors='coerce')
+                    if start_date_val is not None or end_date_val is not None:
+                        datetime_col = pd.to_datetime(col_series, errors='coerce')
+                        valid_dates_mask = datetime_col.notna()
+                        applied_date_filter = False
 
-                    if start_date_val:
-                        start_date_dt = pd.to_datetime(start_date_val)
-                        print(f"Applying date filter on '{col}': >= {start_date_dt}")
-                        df_filtered = df_filtered[df_filtered[col] >= start_date_dt]
-                        col_filter_state_for_col['start_date'] = start_date_val
-                        applied_date_filter = True
-                    if end_date_val:
-                         end_date_dt = pd.to_datetime(end_date_val)
-                         # End date for DatePickerRange is inclusive, so filter for <= end_date
-                         print(f"Applying date filter on '{col}': <= {end_date_dt}")
-                         df_filtered = df_filtered[df_filtered[col] <= end_date_dt]
-                         col_filter_state_for_col['end_date'] = end_date_val
-                         applied_date_filter = True
-                    if applied_date_filter:
-                         status_messages.append(f"'{col}' between {start_date_val or 'any'} and {end_date_val or 'any'}")
+                        # Check if filter is active (dates differ from full range)
+                        full_min_date = datetime_col.min().date() if valid_dates_mask.any() else None
+                        full_max_date = datetime_col.max().date() if valid_dates_mask.any() else None
+                        start_date_dt = pd.to_datetime(start_date_val).date() if start_date_val else None
+                        end_date_dt = pd.to_datetime(end_date_val).date() if end_date_val else None
 
+                        is_filter_active = (start_date_dt != full_min_date) or (end_date_dt != full_max_date)
+
+                        if is_filter_active:
+                            print(f"Applying date range filter on '{col}': {start_date_val} to {end_date_val}")
+                            if start_date_val:
+                                try:
+                                    start_dt = pd.to_datetime(start_date_val)
+                                    col_mask &= (datetime_col >= start_dt) & valid_dates_mask
+                                    col_filter_state_for_col['start_date'] = start_date_val
+                                    applied_date_filter = True
+                                except Exception as date_err:
+                                    print(f"Error converting start_date '{start_date_val}' for column '{col}': {date_err}")
+                            if end_date_val:
+                                try:
+                                    end_dt = pd.to_datetime(end_date_val)
+                                    # Include the end date fully by setting time to end of day
+                                    end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                                    col_mask &= (datetime_col <= end_dt) & valid_dates_mask
+                                    col_filter_state_for_col['end_date'] = end_date_val
+                                    applied_date_filter = True
+                                except Exception as date_err:
+                                    print(f"Error converting end_date '{end_date_val}' for column '{col}': {date_err}")
+
+                            if applied_date_filter:
+                                status_messages.append(f"'{col}' between {start_date_val or 'any'} and {end_date_val or 'any'}")
+                        else:
+                            print(f"Skipping date filter for '{col}': Range covers full data range.")
+
+
+                # Combine this column's mask with the overall mask
+                combined_mask &= col_mask
 
                 # Store the state for this column if any filters were applied
                 if col_filter_state_for_col:
                     current_filter_state[col] = col_filter_state_for_col
 
+                print(f"--- Finished Processing Column: {col}. Current combined mask sum: {combined_mask.sum()} ---")
+
+            # --- Apply the combined mask to the original DataFrame ---
+            df_filtered = df[combined_mask].copy()
+
             # --- Prepare Outputs ---
             filtered_df_json = df_filtered.to_json(orient='split')
-            filter_status_msg = f"篩選已套用 ({len(df_filtered)} / {len(df)} 行). 條件: {'; '.join(status_messages)}" if status_messages else "未套用有效篩選條件。"
-            filter_status_msg_display = html.Div(filter_status_msg, style={'color': 'green' if status_messages else 'orange'})
+            filter_status_msg = f"篩選已套用 ({len(df_filtered)} / {len(df)} 行). 條件: {'; '.join(status_messages)}" if status_messages else "篩選條件未變更或無效。"
+            filter_status_msg_display = html.Div(filter_status_msg, style={'color': 'green' if status_messages and len(df_filtered) < len(df) else ('darkgray' if not status_messages else 'black')}) # Green if filtered, gray if no filters, black if filters applied but no change
 
             preview_cols_out = [{"name": i, "id": i} for i in df_filtered.columns]
             preview_data_out = df_filtered.to_dict('records')
@@ -868,7 +925,7 @@ def register_callbacks(app):
         except Exception as e:
             print(f"Error applying filters: {e}")
             import traceback
-            traceback.print_exc() # Print detailed traceback
+            traceback.print_exc()
             return no_update, no_update, html.Div(f"套用篩選時發生錯誤: {e}", style={'color': 'red'}), no_update, no_update, no_update, no_update
 
 
