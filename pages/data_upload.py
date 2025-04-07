@@ -681,7 +681,7 @@ def register_callbacks(app):
                              marks_dict = {min_val: mark_format.format(min_val), max_val: mark_format.format(max_val)}
 
 
-                        control_card_content.append(
+                        control_card_content.extend([ # Use extend with a list
                             dcc.RangeSlider(
                                 id={'type': 'filter-control', 'index': col, 'control': 'range-slider'},
                                 min=min_val,
@@ -689,13 +689,40 @@ def register_callbacks(app):
                                 step=step,
                                 value=slider_value,
                                 marks=marks_dict, # Use the generated marks
-                                tooltip={"placement": "bottom", "always_visible": True}, # Tooltip will show values rounded by step
-                                className="mb-4" # Add margin bottom
+                                tooltip={"placement": "bottom", "always_visible": False},
+                            ),
+                            dbc.Row([
+                                dbc.Col(dbc.Input(
+                                    id={'type': 'filter-control', 'index': col, 'control': 'min-input'},
+                                    type='number',
+                                    value=slider_value[0], # Initial min value
+                                    min=min_val,
+                                    max=max_val,
+                                    step=step,
+                                    placeholder="最小值",
+                                    debounce=True, # Update only after user stops typing for a bit
+                                    size="sm"
+                                ), width=6),
+                                dbc.Col(dbc.Input(
+                                    id={'type': 'filter-control', 'index': col, 'control': 'max-input'},
+                                    type='number',
+                                    value=slider_value[1], # Initial max value
+                                    min=min_val,
+                                    max=max_val,
+                                    step=step,
+                                    placeholder="最大值",
+                                    debounce=True,
+                                    size="sm"
+                                ), width=6),
+                            ], className="mt-2 mb-3"),
+                            html.Div(
+                                id={'type': 'filter-control', 'index': col, 'control': 'range-display'},
+                                children=f"目前範圍: {mark_format.format(slider_value[0])} - {mark_format.format(slider_value[1])}",
+                                className="text-muted small"
                             )
-                        )
+                        ]) # Close the list for extend
                     else:
                          control_card_content.append(html.P(f"欄位 '{col}' 不包含有效的數值資料。", className="text-muted small"))
-
 
                 # --- 日期時間變數 ---
                 elif pd.api.types.is_datetime64_any_dtype(col_series):
@@ -968,6 +995,109 @@ def register_callbacks(app):
         except Exception as e:
             print(f"Error resetting filters: {e}")
             return no_update, no_update, html.Div(f"重設篩選時發生錯誤: {e}", style={'color': 'red'}), no_update, no_update, no_update, no_update, no_update
+
+
+    # --- 回調：同步 RangeSlider -> Min/Max Inputs ---
+    @app.callback(
+        [Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value'),
+         Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value'),
+         Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-display'}, 'children')],
+        [Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'value')],
+        [State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'step'),
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value'), # Get current min input value
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value')], # Get current max input value
+        prevent_initial_call=True
+    )
+    def sync_slider_to_inputs(slider_value, step, current_input_min, current_input_max):
+        if slider_value is None:
+            return no_update, no_update, no_update
+
+        min_val, max_val = slider_value
+        is_integer = step == 1
+        mark_format = '{:.0f}' if is_integer else '{:.2f}'
+        range_text = f"目前範圍: {mark_format.format(min_val)} - {mark_format.format(max_val)}"
+
+        # Check if inputs need updating to prevent unnecessary triggers
+        min_output = min_val if min_val != current_input_min else no_update
+        max_output = max_val if max_val != current_input_max else no_update
+
+        # Always update the display text
+        return min_output, max_output, range_text
+
+    # --- 回調：同步 Min/Max Inputs -> RangeSlider ---
+    @app.callback(
+        [Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'value'),
+         Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-display'}, 'children', allow_duplicate=True)],
+        [Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value'),
+         Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value')],
+        [State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'value'), # Current slider value
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'min'),   # Slider min limit
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'max'),   # Slider max limit
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'step')], # Slider step
+        prevent_initial_call=True
+    )
+    def sync_inputs_to_slider(input_min, input_max, current_slider_value, slider_min_limit, slider_max_limit, step):
+        ctx = callback_context
+        triggered_id_dict = ctx.triggered[0]['prop_id'].split('.')[0]
+        try:
+            # ID might be a string representation of a dict
+            triggered_id = json.loads(triggered_id_dict.replace("'", "\"")) # Basic handling for dict string
+        except json.JSONDecodeError:
+             print(f"Error decoding triggered ID: {triggered_id_dict}")
+             return no_update, no_update # Cannot determine trigger
+
+        print(f"sync_inputs_to_slider triggered by: {triggered_id.get('control', 'unknown')}")
+
+
+        # Use current slider values as fallback if inputs are None or invalid
+        current_min, current_max = current_slider_value if current_slider_value else [slider_min_limit, slider_max_limit]
+
+        # Helper to safely convert input to float/int or return fallback
+        def safe_convert(val, fallback):
+            if val is None: return fallback
+            try: return float(val) # Use float for broader compatibility initially
+            except (ValueError, TypeError): return fallback
+
+        new_min = safe_convert(input_min, current_min)
+        new_max = safe_convert(input_max, current_max)
+
+
+        # --- Input Validation and Clamping ---
+        # 1. Clamp to slider limits
+        new_min = max(slider_min_limit, new_min)
+        new_max = min(slider_max_limit, new_max)
+
+        # 2. Ensure min <= max
+        if new_min > new_max:
+            # If min input triggered, set max to min
+            if triggered_id.get('control') == 'min-input':
+                new_max = new_min
+            # If max input triggered, set min to max
+            elif triggered_id.get('control') == 'max-input':
+                new_min = new_max
+            # If triggered by something else (unlikely here), default to clamping min
+            else:
+                 new_min = new_max
+
+
+        # 3. (Optional but good) Snap to step? RangeSlider might do this automatically.
+        # Let's assume RangeSlider handles snapping based on its value property update.
+
+        new_slider_value = [new_min, new_max]
+
+        # Update range display text
+        is_integer = step == 1
+        mark_format = '{:.0f}' if is_integer else '{:.2f}'
+        range_text = f"目前範圍: {mark_format.format(new_min)} - {mark_format.format(new_max)}"
+
+        # Only update slider if the value actually changed
+        if new_slider_value != current_slider_value:
+            print(f"Updating slider value from inputs: {new_slider_value}")
+            return new_slider_value, range_text
+        else:
+            print("Input change didn't result in slider value change, updating display only.")
+            # Still update display text even if slider value doesn't change (e.g., input clamped)
+            return no_update, range_text
 
 
 # 在 app.py 中的範例用法 (確保此函式被呼叫):
