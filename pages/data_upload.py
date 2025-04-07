@@ -700,7 +700,9 @@ def register_callbacks(app):
                                     max=max_val,
                                     step=step,
                                     placeholder="最小值",
-                                    debounce=True, # Update only after user stops typing for a bit
+                                    debounce=True,  # 使用防抖
+                                    n_submit=0,     # 用於追踪 Enter 鍵按下
+                                    n_blur=0,       # 用於追踪失去焦點
                                     size="sm"
                                 ), width=6),
                                 dbc.Col(dbc.Input(
@@ -711,7 +713,9 @@ def register_callbacks(app):
                                     max=max_val,
                                     step=step,
                                     placeholder="最大值",
-                                    debounce=True,
+                                    debounce=True,  # 使用防抖
+                                    n_submit=0,     # 用於追踪 Enter 鍵按下
+                                    n_blur=0,       # 用於追踪失去焦點
                                     size="sm"
                                 ), width=6),
                             ], className="mt-2 mb-3"),
@@ -785,19 +789,20 @@ def register_callbacks(app):
         prevent_initial_call=True
     )
     def apply_filters(n_clicks, stored_data_json,
-                      filter_control_ids, # All control IDs
-                      checklist_values, # Values from checklists
-                      range_slider_values, # Values from range sliders
-                      start_dates, # Start dates from date pickers
-                      end_dates, # End dates from date pickers
-                      selected_filter_columns):
+                      filter_control_ids, # List of ALL control ID dicts e.g. {'type': 'filter-control', 'index': 'colA', 'control': 'checklist'}
+                      checklist_values,   # List of values ONLY from checklists
+                      range_slider_values,# List of values ONLY from range sliders
+                      start_dates,        # List of values ONLY from date pickers (start)
+                      end_dates,          # List of values ONLY from date pickers (end)
+                      selected_filter_columns): # Columns selected in the main dropdown
         print(f"--- apply_filters triggered ---")
         # Print received values for debugging
-        print(f"Received checklist_values: {checklist_values}")
-        print(f"Received range_slider_values: {range_slider_values}")
-        print(f"Received start_dates: {start_dates}")
-        print(f"Received end_dates: {end_dates}")
-        print(f"Received filter_control_ids: {filter_control_ids}")
+        # print(f"Received checklist_values: {checklist_values}")
+        # print(f"Received range_slider_values: {range_slider_values}")
+        # print(f"Received start_dates: {start_dates}")
+        # print(f"Received end_dates: {end_dates}")
+        # print(f"Received filter_control_ids: {filter_control_ids}")
+        # print(f"Selected filter columns: {selected_filter_columns}")
 
         if not n_clicks or not stored_data_json or not selected_filter_columns:
             print("Apply filter conditions not met (no click, data, or selected columns).")
@@ -809,15 +814,48 @@ def register_callbacks(app):
             status_messages = []      # To build the status message
             combined_mask = pd.Series([True] * len(df)) # Start with a mask that includes all rows
 
-            # --- Helper function to find the index of a control in the ALL list ---
-            def find_control_index(col_name, control_type_str, all_id_dicts):
-                target_id_dict = {'type': 'filter-control', 'index': col_name, 'control': control_type_str}
-                for i, current_id_dict in enumerate(all_id_dicts):
-                    if current_id_dict == target_id_dict:
-                        return i
-                return -1 # Not found
+            # --- Build a map from control ID dict to its value ---
+            # This relies on Dash providing the values in the same order as the IDs
+            # for each specific control type used in the State definition.
+            control_value_map = {}
+            checklist_ids = []
+            range_slider_ids = []
+            date_range_ids = []
 
-            print(f"Selected columns for filtering: {selected_filter_columns}")
+            # Separate IDs by control type
+            for id_dict in filter_control_ids:
+                control_type = id_dict.get('control')
+                if control_type == 'checklist':
+                    checklist_ids.append(id_dict)
+                elif control_type == 'range-slider':
+                    range_slider_ids.append(id_dict)
+                elif control_type == 'date-range':
+                    date_range_ids.append(id_dict)
+                # Add other control types if necessary
+
+            # Map checklist values
+            if len(checklist_ids) == len(checklist_values):
+                for i, id_dict in enumerate(checklist_ids):
+                    control_value_map[json.dumps(id_dict)] = checklist_values[i] # Use JSON string as key
+            else:
+                 print(f"Warning: Mismatch between checklist IDs ({len(checklist_ids)}) and values ({len(checklist_values)})")
+
+            # Map range slider values
+            if len(range_slider_ids) == len(range_slider_values):
+                for i, id_dict in enumerate(range_slider_ids):
+                    control_value_map[json.dumps(id_dict)] = range_slider_values[i]
+            else:
+                 print(f"Warning: Mismatch between range slider IDs ({len(range_slider_ids)}) and values ({len(range_slider_values)})")
+
+            # Map date range values (start and end dates)
+            if len(date_range_ids) == len(start_dates) and len(date_range_ids) == len(end_dates):
+                for i, id_dict in enumerate(date_range_ids):
+                    # Store as a tuple or dict for easier access later
+                    control_value_map[json.dumps(id_dict)] = {'start': start_dates[i], 'end': end_dates[i]}
+            else:
+                 print(f"Warning: Mismatch between date range IDs ({len(date_range_ids)}) and start/end dates ({len(start_dates)}/{len(end_dates)})")
+
+            # print(f"Constructed control_value_map keys: {list(control_value_map.keys())}")
 
             # --- Apply filters by iterating through selected columns ---
             for col in selected_filter_columns:
@@ -829,101 +867,130 @@ def register_callbacks(app):
                 col_series = df[col]
                 col_filter_state_for_col = {}
                 col_mask = pd.Series([True] * len(df)) # Start with True for this column's mask
+                filter_applied_for_col = False # Track if any filter was actually applied for this column
+
+                # --- Find the relevant control IDs for this column ---
+                col_checklist_id_str = json.dumps({'type': 'filter-control', 'index': col, 'control': 'checklist'})
+                col_slider_id_str = json.dumps({'type': 'filter-control', 'index': col, 'control': 'range-slider'})
+                col_date_id_str = json.dumps({'type': 'filter-control', 'index': col, 'control': 'date-range'})
 
                 # --- Apply Categorical Filter ---
-                checklist_idx = find_control_index(col, 'checklist', filter_control_ids)
-                if checklist_idx != -1 and checklist_idx < len(checklist_values):
-                    selected_values = checklist_values[checklist_idx]
+                if col_checklist_id_str in control_value_map:
+                    selected_values = control_value_map[col_checklist_id_str]
                     if selected_values is not None:
-                        # Check if the filter is actually active (not all values selected)
                         all_unique_values = [str(v) for v in col_series.unique() if pd.notna(v)]
+                        # Check if filter is active (not all values selected)
                         if set(selected_values) != set(all_unique_values):
                             print(f"Applying categorical filter on '{col}': Keep values {selected_values}")
                             try:
+                                # Attempt conversion to original dtype for robust comparison
                                 typed_selected_values = pd.Series(selected_values).astype(col_series.dtype).tolist()
                                 col_mask &= col_series.isin(typed_selected_values)
                             except Exception as e:
                                 print(f"Warning: Could not convert selected values for column '{col}' to original dtype ({col_series.dtype}). Filtering with strings. Error: {e}")
-                                col_mask &= col_series.astype(str).isin(selected_values)
+                                col_mask &= col_series.astype(str).isin(selected_values) # Fallback to string comparison
                             col_filter_state_for_col['values'] = selected_values
                             status_messages.append(f"'{col}' in [{', '.join(map(str, selected_values))}]")
+                            filter_applied_for_col = True
+                        else:
+                            print(f"Skipping categorical filter for '{col}': All values selected.")
+                    else:
+                         print(f"Skipping categorical filter for '{col}': Selected values is None.")
 
 
                 # --- Apply Numerical Filter (RangeSlider) ---
-                slider_idx = find_control_index(col, 'range-slider', filter_control_ids)
-                print(f"[Index Check - Slider] slider_idx: {slider_idx}")
-                if slider_idx != -1 and slider_idx < len(range_slider_values):
-                    slider_range = range_slider_values[slider_idx]
-                    print(f"[Value Check - Slider] Raw slider_range: {slider_range}")
-                    if slider_range: # Ensure it's not None or empty
+                elif col_slider_id_str in control_value_map:
+                    slider_range = control_value_map[col_slider_id_str]
+                    print(f"[Value Check - Slider] Raw slider_range for '{col}': {slider_range}")
+                    if slider_range: # Ensure it's not None or empty list
                         min_val, max_val = slider_range
                         # Check if the slider range is different from the column's full range
                         numeric_col_full = pd.to_numeric(col_series, errors='coerce').dropna()
-                        full_min = numeric_col_full.min()
-                        full_max = numeric_col_full.max()
+                        if not numeric_col_full.empty:
+                            full_min = numeric_col_full.min()
+                            full_max = numeric_col_full.max()
+                            # Add tolerance for float comparisons if needed, or round
+                            is_filter_active = (min_val > full_min) or (max_val < full_max)
 
-                        if min_val > full_min or max_val < full_max:
-                            print(f"Applying numerical range filter on '{col}': between {min_val} and {max_val}")
-                            numeric_col = pd.to_numeric(col_series, errors='coerce')
-                            # Use between (inclusive by default)
-                            col_mask &= numeric_col.between(min_val, max_val, inclusive='both')
-                            col_filter_state_for_col['range'] = [min_val, max_val]
-                            status_messages.append(f"'{col}' between {min_val:.2f} and {max_val:.2f}")
+                            if is_filter_active:
+                                print(f"Applying numerical range filter on '{col}': between {min_val} and {max_val}")
+                                numeric_col = pd.to_numeric(col_series, errors='coerce')
+                                # Handle potential NaNs introduced by coercion before comparison
+                                col_mask &= numeric_col.between(min_val, max_val, inclusive='both') & numeric_col.notna()
+                                col_filter_state_for_col['range'] = [min_val, max_val]
+                                status_messages.append(f"'{col}' between {min_val:.2f} and {max_val:.2f}")
+                                filter_applied_for_col = True
+                            else:
+                                print(f"Skipping numerical filter for '{col}': Slider range covers full data range.")
                         else:
-                             print(f"Skipping numerical filter for '{col}': Slider range covers full data range.")
+                            print(f"Skipping numerical filter for '{col}': Column has no valid numeric data.")
                     else:
                         print(f"Skipping numerical filter for '{col}': Slider value is None or empty.")
 
 
                 # --- Apply Date Filter ---
-                date_range_idx = find_control_index(col, 'date-range', filter_control_ids)
-                if date_range_idx != -1:
-                    start_date_val = start_dates[date_range_idx] if date_range_idx < len(start_dates) else None
-                    end_date_val = end_dates[date_range_idx] if date_range_idx < len(end_dates) else None
-                    print(f"[Value Check - Date] Raw start: '{start_date_val}', Raw end: '{end_date_val}'")
+                elif col_date_id_str in control_value_map:
+                    date_values = control_value_map[col_date_id_str]
+                    start_date_val = date_values.get('start')
+                    end_date_val = date_values.get('end')
+                    print(f"[Value Check - Date] Raw start: '{start_date_val}', Raw end: '{end_date_val}' for '{col}'")
 
                     if start_date_val is not None or end_date_val is not None:
                         datetime_col = pd.to_datetime(col_series, errors='coerce')
                         valid_dates_mask = datetime_col.notna()
-                        applied_date_filter = False
+                        applied_date_filter_segment = False # Track if start or end date filter was applied
 
-                        # Check if filter is active (dates differ from full range)
-                        full_min_date = datetime_col.min().date() if valid_dates_mask.any() else None
-                        full_max_date = datetime_col.max().date() if valid_dates_mask.any() else None
-                        start_date_dt = pd.to_datetime(start_date_val).date() if start_date_val else None
-                        end_date_dt = pd.to_datetime(end_date_val).date() if end_date_val else None
+                        if valid_dates_mask.any(): # Only proceed if there are valid dates
+                            # Check if filter is active (dates differ from full range)
+                            full_min_date = datetime_col.min().date()
+                            full_max_date = datetime_col.max().date()
+                            start_date_dt = pd.to_datetime(start_date_val).date() if start_date_val else None
+                            end_date_dt = pd.to_datetime(end_date_val).date() if end_date_val else None
 
-                        is_filter_active = (start_date_dt != full_min_date) or (end_date_dt != full_max_date)
+                            # Determine if the selected range is narrower than the full range
+                            is_filter_active = (start_date_dt is not None and start_date_dt > full_min_date) or \
+                                               (end_date_dt is not None and end_date_dt < full_max_date)
 
-                        if is_filter_active:
-                            print(f"Applying date range filter on '{col}': {start_date_val} to {end_date_val}")
-                            if start_date_val:
-                                try:
-                                    start_dt = pd.to_datetime(start_date_val)
-                                    col_mask &= (datetime_col >= start_dt) & valid_dates_mask
-                                    col_filter_state_for_col['start_date'] = start_date_val
-                                    applied_date_filter = True
-                                except Exception as date_err:
-                                    print(f"Error converting start_date '{start_date_val}' for column '{col}': {date_err}")
-                            if end_date_val:
-                                try:
-                                    end_dt = pd.to_datetime(end_date_val)
-                                    # Include the end date fully by setting time to end of day
-                                    end_dt = end_dt.replace(hour=23, minute=59, second=59)
-                                    col_mask &= (datetime_col <= end_dt) & valid_dates_mask
-                                    col_filter_state_for_col['end_date'] = end_date_val
-                                    applied_date_filter = True
-                                except Exception as date_err:
-                                    print(f"Error converting end_date '{end_date_val}' for column '{col}': {date_err}")
+                            if is_filter_active:
+                                print(f"Applying date range filter on '{col}': {start_date_val} to {end_date_val}")
+                                temp_date_mask = pd.Series([True] * len(df)) # Mask for this date filter segment
+                                if start_date_val:
+                                    try:
+                                        start_dt = pd.to_datetime(start_date_val).normalize() # Set time to 00:00:00
+                                        temp_date_mask &= (datetime_col >= start_dt)
+                                        col_filter_state_for_col['start_date'] = start_date_val
+                                        applied_date_filter_segment = True
+                                    except Exception as date_err:
+                                        print(f"Error converting start_date '{start_date_val}' for column '{col}': {date_err}")
+                                if end_date_val:
+                                    try:
+                                        end_dt = pd.to_datetime(end_date_val).normalize() + pd.Timedelta(days=1, seconds=-1) # End of day
+                                        temp_date_mask &= (datetime_col <= end_dt)
+                                        col_filter_state_for_col['end_date'] = end_date_val
+                                        applied_date_filter_segment = True
+                                    except Exception as date_err:
+                                        print(f"Error converting end_date '{end_date_val}' for column '{col}': {date_err}")
 
-                            if applied_date_filter:
-                                status_messages.append(f"'{col}' between {start_date_val or 'any'} and {end_date_val or 'any'}")
+                                # Apply the date mask only to valid dates in the original column
+                                col_mask &= (temp_date_mask | ~valid_dates_mask) # Keep rows where date is invalid OR matches filter
+
+                                if applied_date_filter_segment:
+                                    status_messages.append(f"'{col}' between {start_date_val or 'any'} and {end_date_val or 'any'}")
+                                    filter_applied_for_col = True
+                            else:
+                                print(f"Skipping date filter for '{col}': Range covers full data range.")
                         else:
-                            print(f"Skipping date filter for '{col}': Range covers full data range.")
+                            print(f"Skipping date filter for '{col}': Column has no valid date data.")
+                    else:
+                        print(f"Skipping date filter for '{col}': Start and End dates are None.")
 
 
                 # Combine this column's mask with the overall mask
-                combined_mask &= col_mask
+                if filter_applied_for_col:
+                    combined_mask &= col_mask
+                else:
+                    print(f"No active filter applied for column '{col}'.")
+
 
                 # Store the state for this column if any filters were applied
                 if col_filter_state_for_col:
@@ -936,8 +1003,13 @@ def register_callbacks(app):
 
             # --- Prepare Outputs ---
             filtered_df_json = df_filtered.to_json(orient='split')
-            filter_status_msg = f"篩選已套用 ({len(df_filtered)} / {len(df)} 行). 條件: {'; '.join(status_messages)}" if status_messages else "篩選條件未變更或無效。"
-            filter_status_msg_display = html.Div(filter_status_msg, style={'color': 'green' if status_messages and len(df_filtered) < len(df) else ('darkgray' if not status_messages else 'black')}) # Green if filtered, gray if no filters, black if filters applied but no change
+            filter_status_msg = f"篩選已套用 ({len(df_filtered)} / {len(df)} 行)."
+            if status_messages:
+                 filter_status_msg += f" 條件: {'; '.join(status_messages)}"
+            else:
+                 filter_status_msg = "篩選條件未變更或無效，顯示所有資料。" if len(df_filtered) == len(df) else filter_status_msg
+
+            filter_status_msg_display = html.Div(filter_status_msg, style={'color': 'green' if status_messages and len(df_filtered) < len(df) else ('darkgray' if not status_messages else 'black')})
 
             preview_cols_out = [{"name": i, "id": i} for i in df_filtered.columns]
             preview_data_out = df_filtered.to_dict('records')
@@ -953,7 +1025,11 @@ def register_callbacks(app):
             print(f"Error applying filters: {e}")
             import traceback
             traceback.print_exc()
-            return no_update, no_update, html.Div(f"套用篩選時發生錯誤: {e}", style={'color': 'red'}), no_update, no_update, no_update, no_update
+            # Reset to original data on error? Or just show error? Showing error is safer.
+            error_msg_display = html.Div(f"套用篩選時發生錯誤: {e}", style={'color': 'red'})
+            # Return original data in tables to avoid inconsistent state? Or no_update?
+            # Let's return no_update for data stores and tables, but update the status.
+            return no_update, no_update, error_msg_display, no_update, no_update, no_update, no_update
 
 
     # --- 回調：重設篩選 ---
@@ -999,17 +1075,33 @@ def register_callbacks(app):
 
     # --- 回調：同步 RangeSlider -> Min/Max Inputs ---
     @app.callback(
-        [Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value'),
-         Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value'),
-         Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-display'}, 'children')],
+        [Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value', allow_duplicate=True),
+         Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value', allow_duplicate=True),
+         Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-display'}, 'children', allow_duplicate=True)],
         [Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'value')],
         [State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'step'),
-         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value'), # Get current min input value
-         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value')], # Get current max input value
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value'),
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value')],
         prevent_initial_call=True
     )
     def sync_slider_to_inputs(slider_value, step, current_input_min, current_input_max):
+        ctx = callback_context
+        triggered_id_str = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+        triggered_control = None
+        if triggered_id_str:
+            try:
+                triggered_id = json.loads(triggered_id_str.replace("'", "\""))
+                triggered_control = triggered_id.get('control')
+            except json.JSONDecodeError:
+                 print(f"sync_slider_to_inputs: Error decoding triggered ID: {triggered_id_str}")
+
+        # Only proceed if triggered by the slider itself
+        if triggered_control != 'range-slider':
+            print(f"sync_slider_to_inputs: Triggered by {triggered_control or 'unknown'}, not 'range-slider'. Skipping.")
+            return no_update, no_update, no_update
+
         if slider_value is None:
+            print("sync_slider_to_inputs: slider_value is None. Skipping.")
             return no_update, no_update, no_update
 
         min_val, max_val = slider_value
@@ -1017,88 +1109,75 @@ def register_callbacks(app):
         mark_format = '{:.0f}' if is_integer else '{:.2f}'
         range_text = f"目前範圍: {mark_format.format(min_val)} - {mark_format.format(max_val)}"
 
-        # Check if inputs need updating to prevent unnecessary triggers
-        min_output = min_val if min_val != current_input_min else no_update
-        max_output = max_val if max_val != current_input_max else no_update
+        # Helper to safely convert input value to float for comparison
+        def safe_float_compare(slider_val, input_val):
+            try:
+                # Use a small tolerance for float comparison
+                return not np.isclose(float(slider_val), float(input_val), atol=1e-9)
+            except (ValueError, TypeError):
+                return True # If input is not a valid number, assume it needs update
+
+        # Check if inputs need updating, comparing numerically
+        min_needs_update = safe_float_compare(min_val, current_input_min)
+        max_needs_update = safe_float_compare(max_val, current_input_max)
+
+        min_output = min_val if min_needs_update else no_update
+        max_output = max_val if max_needs_update else no_update
+
+        if not min_needs_update: print(f"Slider min ({min_val}) matches input min ({current_input_min}), not updating input.")
+        if not max_needs_update: print(f"Slider max ({max_val}) matches input max ({current_input_max}), not updating input.")
 
         # Always update the display text
         return min_output, max_output, range_text
 
     # --- 回調：同步 Min/Max Inputs -> RangeSlider ---
     @app.callback(
-        [Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'value'),
+        [Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'value', allow_duplicate=True),
          Output({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-display'}, 'children', allow_duplicate=True)],
-        [Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value'),
-         Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value')],
-        [State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'value'), # Current slider value
-         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'min'),   # Slider min limit
-         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'max'),   # Slider max limit
-         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'step')], # Slider step
+        [Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'n_submit'),
+         Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'n_blur'),
+         Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'n_submit'),
+         Input({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'n_blur')],
+        [State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'min-input'}, 'value'),
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'max-input'}, 'value'),
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'min'),
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'max'),
+         State({'type': 'filter-control', 'index': dash.MATCH, 'control': 'range-slider'}, 'step')],
         prevent_initial_call=True
     )
-    def sync_inputs_to_slider(input_min, input_max, current_slider_value, slider_min_limit, slider_max_limit, step):
+    def sync_inputs_to_slider(min_submit, min_blur, max_submit, max_blur,
+                            input_min, input_max, slider_min, slider_max, step):
         ctx = callback_context
-        triggered_id_dict = ctx.triggered[0]['prop_id'].split('.')[0]
+        if not ctx.triggered:
+            return no_update, no_update
+
+        # 檢查輸入值是否有效
         try:
-            # ID might be a string representation of a dict
-            triggered_id = json.loads(triggered_id_dict.replace("'", "\"")) # Basic handling for dict string
-        except json.JSONDecodeError:
-             print(f"Error decoding triggered ID: {triggered_id_dict}")
-             return no_update, no_update # Cannot determine trigger
+            input_min = float(input_min) if input_min is not None else slider_min
+            input_max = float(input_max) if input_max is not None else slider_max
+        except (ValueError, TypeError):
+            return no_update, no_update
 
-        print(f"sync_inputs_to_slider triggered by: {triggered_id.get('control', 'unknown')}")
-
-
-        # Use current slider values as fallback if inputs are None or invalid
-        current_min, current_max = current_slider_value if current_slider_value else [slider_min_limit, slider_max_limit]
-
-        # Helper to safely convert input to float/int or return fallback
-        def safe_convert(val, fallback):
-            if val is None: return fallback
-            try: return float(val) # Use float for broader compatibility initially
-            except (ValueError, TypeError): return fallback
-
-        new_min = safe_convert(input_min, current_min)
-        new_max = safe_convert(input_max, current_max)
-
-
-        # --- Input Validation and Clamping ---
-        # 1. Clamp to slider limits
-        new_min = max(slider_min_limit, new_min)
-        new_max = min(slider_max_limit, new_max)
-
-        # 2. Ensure min <= max
-        if new_min > new_max:
-            # If min input triggered, set max to min
-            if triggered_id.get('control') == 'min-input':
-                new_max = new_min
-            # If max input triggered, set min to max
-            elif triggered_id.get('control') == 'max-input':
-                new_min = new_max
-            # If triggered by something else (unlikely here), default to clamping min
+        # 確保輸入值在滑桿範圍內
+        input_min = max(slider_min, min(input_min, slider_max))
+        input_max = max(slider_min, min(input_max, slider_max))
+        
+        # 確保最小值不大於最大值
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        if input_min > input_max:
+            if 'min-input' in triggered_id:
+                input_min = input_max
             else:
-                 new_min = new_max
+                input_max = input_min
 
-
-        # 3. (Optional but good) Snap to step? RangeSlider might do this automatically.
-        # Let's assume RangeSlider handles snapping based on its value property update.
-
-        new_slider_value = [new_min, new_max]
-
-        # Update range display text
+        # 更新顯示文字
         is_integer = step == 1
         mark_format = '{:.0f}' if is_integer else '{:.2f}'
-        range_text = f"目前範圍: {mark_format.format(new_min)} - {mark_format.format(new_max)}"
+        range_text = f"目前範圍: {mark_format.format(input_min)} - {mark_format.format(input_max)}"
 
-        # Only update slider if the value actually changed
-        if new_slider_value != current_slider_value:
-            print(f"Updating slider value from inputs: {new_slider_value}")
-            return new_slider_value, range_text
-        else:
-            print("Input change didn't result in slider value change, updating display only.")
-            # Still update display text even if slider value doesn't change (e.g., input clamped)
-            return no_update, range_text
+        return [input_min, input_max], range_text
 
+# --- Removed sync_inputs_to_slider callback to break dependency cycle ---
 
 # 在 app.py 中的範例用法 (確保此函式被呼叫):
 # from pages import data_upload
