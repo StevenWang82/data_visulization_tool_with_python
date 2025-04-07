@@ -2,14 +2,14 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html, Input, Output
 
-from pages import data_upload, distribution, relationship, bar_plot, heatmap # Import all page modules
+from pages import data_upload, distribution, relationship, bar_plot, heatmap # 匯入所有頁面模組
 
-# Initialize the Dash app with Bootstrap theme
+# 使用 Bootstrap 主題初始化 Dash 應用程式
 app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.BOOTSTRAP])
-server = app.server # Expose server variable for deployment
+server = app.server # 為了部署，公開 server 變數
 
-# Define the navigation bar using Bootstrap components for better styling potential
-# Using dbc.Nav for better Bootstrap integration
+# 使用 Bootstrap 元件定義導覽列，以提供更好的樣式設計潛力
+# 使用 dbc.Nav 以達成更好的 Bootstrap 整合
 navbar = dbc.Nav(
     [
         dbc.NavItem(dbc.NavLink('資料上傳 (data loading)', href='/', active="exact")),
@@ -18,31 +18,32 @@ navbar = dbc.Nav(
         dbc.NavItem(dbc.NavLink('長條圖 (bar plot)', href='/bar', active="exact")),
         dbc.NavItem(dbc.NavLink('熱力圖 (Heatmap)', href='/heatmap', active="exact")),
     ],
-    pills=True, # Use pills style for navigation
-    className="mb-3", # Add margin bottom
+    pills=True, # 使用膠囊 (pills) 樣式進行導覽
+    className="mb-3", # 新增底部邊距
 )
 
-# Main application layout using a function and Bootstrap container
+# 使用函式和 Bootstrap 容器定義主應用程式佈局
 def serve_layout():
-    return dbc.Container([ # Use Bootstrap container for layout
-        dcc.Location(id='url', refresh=False), # Component to track URL changes
-        dcc.Store(id='stored-data'), # Store component to hold data across pages
-        html.H1("資料視覺化工具(Data Visualization Tool)", className="my-4"), # Add margin with Bootstrap class
+    return dbc.Container([ # 使用 Bootstrap 容器進行佈局
+        dcc.Location(id='url', refresh=False), # 用於追蹤 URL 變化的元件
+        dcc.Store(id='stored-data'), # 用於跨頁面儲存資料的 Store 元件
+        html.H1("資料視覺化工具(Data Visualization Tool)", className="my-4"), # 使用 Bootstrap class 新增邊距
         navbar,
-        html.Div(id='page-content') # Content will be loaded here based on URL
-    ], fluid=True) # Use fluid container to take full width
+        html.Div(id='page-content') # 內容將根據 URL 載入此處
+    ], fluid=True) # 使用流體 (fluid) 容器以佔滿全部寬度，適用響應式設計
 
-app.layout = serve_layout # Assign the layout function
+app.layout = serve_layout # 指派佈局函式
 
-# Register callbacks from data_upload page ONCE after app initialization
-# This assumes data_upload.py has a function register_callbacks(app)
-# Make sure data_upload.py doesn't import 'app' directly at the top level
-# causing circular imports. If it does, you might need a different pattern
-# Register callbacks from imported page modules
-# This pattern assumes each page module has a 'register_callbacks(app)' function
-# if it defines callbacks that need the app instance.
-# If a page only has layout and no callbacks needing 'app', it doesn't need this.
-for page_module in [data_upload, distribution, relationship, bar_plot, heatmap]: # Register all imported modules
+# 在應用程式初始化後，僅註冊一次來自 data_upload 頁面的回調函式
+# 這假設 data_upload.py 有一個 register_callbacks(app) 函式
+# 確保 data_upload.py 不在頂層直接匯入 'app'
+# 以免造成循環匯入。如果發生這種情況，您可能需要不同的模式
+# 從匯入的頁面模組註冊回調函式
+# 此模式假設每個頁面模組都有一個 'register_callbacks(app)' 函式
+# 如果它定義了需要 app 實例的回調函式。
+# 如果頁面只有佈局而沒有需要 'app' 的回調函式，則不需要此步驟。
+
+for page_module in [data_upload, distribution, relationship, bar_plot, heatmap]: # 註冊所有匯入的模組
     try:
         page_module.register_callbacks(app)
         print(f"Successfully registered callbacks from {page_module.__name__}.")
@@ -52,11 +53,11 @@ for page_module in [data_upload, distribution, relationship, bar_plot, heatmap]:
         print(f"Error registering callbacks for {page_module.__name__}: {e}")
 
 
-# Callback to render page content based on URL
+# 根據 URL 渲染頁面內容的回調函式
 @app.callback(Output('page-content', 'children'),
               [Input('url', 'pathname')])
 def display_page(pathname):
-    # Return layout based on pathname from pre-imported modules
+    # 從預先匯入的模組根據路徑名稱傳回佈局
     if pathname == '/distribution':
         return distribution.layout
     elif pathname == '/relationship':
@@ -65,13 +66,12 @@ def display_page(pathname):
         return bar_plot.layout
     elif pathname == '/heatmap':
         return heatmap.layout
-    elif pathname == '/' or pathname == '/data_upload': # Handle root and explicit path
+    elif pathname == '/' or pathname == '/data_upload': # 處理根路徑和明確路徑
         return data_upload.layout
     else:
         return html.Div("404 Page not found")
-    # Removed dynamic imports from display_page
 
 
 if __name__ == '__main__':
-    # Note: debug=True should be False in production
+    # 注意：在生產環境中 debug=True 應設為 False
     app.run(debug=True)
