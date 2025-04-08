@@ -54,6 +54,34 @@ layout = html.Div([
     html.Div([
         dcc.Graph(id='relationship-plotly-graph', style={'display': 'block'}),
         html.Img(id='relationship-static-img', style={'display': 'none', 'maxWidth': '100%'})
+    ]),
+
+    # Section for Dynamic Code Snippet
+    html.Div(id='rel-dynamic-code-section', children=[
+        html.H4("動態圖表範例程式碼"),
+        dcc.Markdown(
+            id='rel-dynamic-code-block',
+            style={
+                'whiteSpace': 'pre-wrap',
+                'backgroundColor': '#f8f8f8',
+                'padding': '10px',
+                'border': '1px solid #ccc'
+            }
+        )
+    ]),
+
+    # Section for Static Code Snippet
+    html.Div(id='rel-static-code-section', children=[
+        html.H4("靜態圖表範例程式碼"),
+        dcc.Markdown(
+            id='rel-static-code-block',
+            style={
+                'whiteSpace': 'pre-wrap',
+                'backgroundColor': '#f8f8f8',
+                'padding': '10px',
+                'border': '1px solid #ccc'
+            }
+        )
     ])
 ])
 
@@ -260,6 +288,75 @@ def register_callbacks(app):
         if status_message:
             return status_message
         return "目前未套用篩選條件。"
+
+    @app.callback(
+        [Output('rel-dynamic-code-section', 'style'),
+         Output('rel-static-code-section', 'style')],
+        [Input('rel-plot-type-radio', 'value')]
+    )
+    def toggle_rel_code_section_visibility(view_mode):
+        if view_mode == 'dynamic':
+            return {'display': 'block'}, {'display': 'none'}
+        elif view_mode == 'static':
+            return {'display': 'none'}, {'display': 'block'}
+        return {'display': 'block'}, {'display': 'none'} # Default to showing dynamic
+
+    @app.callback(
+        [Output('rel-dynamic-code-block', 'children'),
+         Output('rel-static-code-block', 'children')],
+        [Input('filtered-data-store', 'data'),
+         Input('rel-var1-dropdown', 'value'),
+         Input('rel-var2-dropdown', 'value'),
+         Input('rel-group-dropdown', 'value'),
+         Input('rel-plot-type-radio', 'value')]
+    )
+    def update_rel_code_snippets(stored_data_json, var1, var2, group_var, view_mode):
+        if stored_data_json is None or var1 is None or var2 is None:
+            msg = "請先選擇兩個變數"
+            return msg, msg
+
+        # Dynamic (Plotly) code generation
+        plotly_params = f"df, x='{var1}', y='{var2}'"
+        if group_var:
+            plotly_params += f", color='{group_var}'"
+        plotly_params += ", title='', trendline='ols'" # Match plot generation
+
+        plotly_code = f"""```python
+import plotly.express as px
+
+# Assuming 'df' is your pandas DataFrame
+fig = px.scatter({plotly_params})
+fig.show()
+```"""
+
+        # Static (Seaborn) code generation
+        static_code = f"""```python
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Assuming 'df' is your pandas DataFrame
+plt.figure(figsize=(8, 5))
+"""
+        if group_var:
+            static_code += f"sns.scatterplot(data=df, x='{var1}', y='{var2}', hue='{group_var}')\n"
+        else:
+            static_code += f"sns.scatterplot(data=df, x='{var1}', y='{var2}')\n"
+            static_code += f"sns.regplot(data=df, x='{var1}', y='{var2}', scatter=False)\n" # Add regplot if no grouping
+
+        static_code += f"""plt.title('')
+plt.xlabel('{var1}')
+plt.ylabel('{var2}')
+plt.tight_layout() # Added for better spacing
+plt.show()
+```"""
+
+        if view_mode == 'dynamic':
+            return plotly_code, ""
+        elif view_mode == 'static':
+            return "", static_code
+        else:
+            # Should not happen with RadioItems, but return dynamic as default
+            return plotly_code, ""
 
 # --- End of Callback Registration ---
 

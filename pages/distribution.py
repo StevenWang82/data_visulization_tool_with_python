@@ -63,6 +63,34 @@ layout = html.Div([
     html.Div([
         dcc.Graph(id='distribution-plotly-graph', style={'display': 'block'}),
         html.Img(id='distribution-static-img', style={'display': 'none', 'maxWidth': '100%'})
+    ]),
+
+    # Section for Dynamic Code Snippet
+    html.Div(id='dynamic-code-section', children=[
+        html.H4("動態圖表範例程式碼"),
+        dcc.Markdown(
+            id='dynamic-code-block',
+            style={
+                'whiteSpace': 'pre-wrap',
+                'backgroundColor': '#f8f8f8',
+                'padding': '10px',
+                'border': '1px solid #ccc'
+            }
+        )
+    ]),
+
+    # Section for Static Code Snippet
+    html.Div(id='static-code-section', children=[
+        html.H4("靜態圖表範例程式碼"),
+        dcc.Markdown(
+            id='static-code-block',
+            style={
+                'whiteSpace': 'pre-wrap',
+                'backgroundColor': '#f8f8f8',
+                'padding': '10px',
+                'border': '1px solid #ccc'
+            }
+        )
     ])
 ])
 
@@ -257,6 +285,81 @@ def register_callbacks(app):
         
         return "目前未套用篩選條件。"
 
-# --- End of Callback Registration ---
+    @app.callback(
+        [Output('dynamic-code-section', 'style'),
+         Output('static-code-section', 'style')],
+        [Input('dist-view-mode-radio', 'value')]
+    )
+    def toggle_code_section_visibility(view_mode):
+        if view_mode == 'dynamic':
+            return {'display': 'block'}, {'display': 'none'}
+        elif view_mode == 'static':
+            return {'display': 'none'}, {'display': 'block'}
+        return {'display': 'block'}, {'display': 'none'} # Default to showing dynamic
+
+    @app.callback(
+        [Output('dynamic-code-block', 'children'),
+         Output('static-code-block', 'children')],
+        [Input('filtered-data-store', 'data'),
+         Input('dist-numerical-dropdown', 'value'),
+         Input('dist-grouping-dropdown', 'value'),
+         Input('dist-plotly-type-dropdown', 'value'),
+         Input('dist-view-mode-radio', 'value')]
+    )
+    def update_code_snippets(stored_data_json, numerical_col, grouping_col, plotly_type, view_mode):
+        if stored_data_json is None or numerical_col is None:
+            msg = "請先選擇數值欄位"
+            return msg, msg
+
+        # Plotly code generation
+        plotly_func = {
+            'histogram': 'px.histogram',
+            'box': 'px.box',
+            'violin': 'px.violin'
+        }.get(plotly_type, 'px.histogram')
+
+        plotly_params = f"df, "
+        if plotly_type == 'histogram':
+            plotly_params += f"x='{numerical_col}'"
+            if grouping_col:
+                plotly_params += f", color='{grouping_col}'"
+            plotly_params += ", title=''"
+            plotly_params += ", marginal='rug', hover_data=df.columns"
+        else:
+            if grouping_col:
+                plotly_params += f"x='{grouping_col}', y='{numerical_col}', color='{grouping_col}'"
+            else:
+                plotly_params += f"y='{numerical_col}'"
+            plotly_params += ", title=''"
+            if plotly_type == 'violin':
+                plotly_params += ", box=True, points='all'"
+            elif plotly_type == 'box':
+                plotly_params += ", points='all'"
+
+        plotly_code = f"""```python
+import plotly.express as px
+
+fig = {plotly_func}({plotly_params})
+fig.show()
+```"""
+
+        # Static (Seaborn) code generation
+        static_code = f"""```python
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8,5))
+sns.histplot(data=df, x='{numerical_col}'"""
+        if grouping_col:
+            static_code += f", hue='{grouping_col}'"
+        static_code += ", kde=True)\n"
+        static_code += """plt.title('')\nplt.xlabel('數值')\nplt.ylabel('頻率')\nplt.show()\n```"""
+
+        if view_mode == 'dynamic':
+            return plotly_code, ""
+        elif view_mode == 'static':
+            return "", static_code
+        else:
+            return "", ""
 
 # NOTE: No 'if __name__ == "__main__":' block here

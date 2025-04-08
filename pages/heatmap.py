@@ -78,6 +78,34 @@ layout = html.Div([
     html.Div([
         dcc.Graph(id='heatmap-plotly-graph', style={'display': 'block'}),
         html.Img(id='heatmap-static-img', style={'display': 'none', 'maxWidth': '100%'})
+    ]),
+
+    # Section for Dynamic Code Snippet
+    html.Div(id='heatmap-dynamic-code-section', children=[
+        html.H4("動態圖表範例程式碼"),
+        dcc.Markdown(
+            id='heatmap-dynamic-code-block',
+            style={
+                'whiteSpace': 'pre-wrap',
+                'backgroundColor': '#f8f8f8',
+                'padding': '10px',
+                'border': '1px solid #ccc'
+            }
+        )
+    ]),
+
+    # Section for Static Code Snippet
+    html.Div(id='heatmap-static-code-section', children=[
+        html.H4("靜態圖表範例程式碼"),
+        dcc.Markdown(
+            id='heatmap-static-code-block',
+            style={
+                'whiteSpace': 'pre-wrap',
+                'backgroundColor': '#f8f8f8',
+                'padding': '10px',
+                'border': '1px solid #ccc'
+            }
+        )
     ])
 ])
 
@@ -299,6 +327,177 @@ def register_callbacks(app):
         if status_message:
             return status_message
         return "目前未套用篩選條件。"
+
+    @app.callback(
+        [Output('heatmap-dynamic-code-section', 'style'),
+         Output('heatmap-static-code-section', 'style')],
+        [Input('heatmap-plot-type-radio', 'value')]
+    )
+    def toggle_heatmap_code_section_visibility(view_mode):
+        if view_mode == 'dynamic':
+            return {'display': 'block'}, {'display': 'none'}
+        elif view_mode == 'static':
+            return {'display': 'none'}, {'display': 'block'}
+        return {'display': 'block'}, {'display': 'none'} # Default to showing dynamic
+
+    @app.callback(
+        [Output('heatmap-dynamic-code-block', 'children'),
+         Output('heatmap-static-code-block', 'children')],
+        [Input('filtered-data-store', 'data'),
+         Input('heatmap-mode-radio', 'value'),
+         Input('heatmap-numeric-dropdown', 'value'),
+         Input('heatmap-cat1-dropdown', 'value'),
+         Input('heatmap-cat2-dropdown', 'value'),
+         Input('heatmap-plot-type-radio', 'value')]
+    )
+    def update_heatmap_code_snippets(stored_data_json, mode, numeric_cols, cat1, cat2, view_mode):
+        if stored_data_json is None:
+            msg = "請先上傳資料"
+            return msg, msg
+
+        dynamic_code = "```python\n# 動態圖表程式碼生成失敗\n```"
+        static_code = "```python\n# 靜態圖表程式碼生成失敗\n```"
+
+        try:
+            if mode == 'numeric':
+                if not numeric_cols or len(numeric_cols) < 2:
+                    msg = "請選擇至少兩個數值變數"
+                    return msg, msg
+
+                numeric_cols_str = str(numeric_cols) # Convert list to string representation
+
+                # Dynamic Plotly Code (Numeric)
+                dynamic_code = f"""```python
+import plotly.express as px
+import pandas as pd
+
+# 假設 df 是您的 DataFrame
+# df = pd.read_csv('your_data.csv') # 或其他載入方式
+
+numeric_cols = {numeric_cols_str}
+if len(numeric_cols) >= 2:
+    corr_df = df[numeric_cols].corr()
+    fig = px.imshow(
+        corr_df,
+        title="變數間的相關性熱力圖",
+        labels=dict(color="相關係數"),
+        color_continuous_scale="Blues",
+        aspect="auto"
+    )
+    fig.update_layout(
+        xaxis_title="變數",
+        yaxis_title="變數"
+    )
+    fig.show()
+else:
+    print("請選擇至少兩個數值變數")
+```"""
+
+                # Static Seaborn Code (Numeric)
+                static_code = f"""```python
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# 假設 df 是您的 DataFrame
+# df = pd.read_csv('your_data.csv') # 或其他載入方式
+# plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] # 設定中文字體 (如果需要)
+# plt.rcParams['axes.unicode_minus'] = False # 解決負號顯示問題
+
+numeric_cols = {numeric_cols_str}
+if len(numeric_cols) >= 2:
+    corr_df = df[numeric_cols].corr()
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(corr_df, annot=True, cmap='Blues')
+    plt.title("變數間的相關性熱力圖")
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("請選擇至少兩個數值變數")
+```"""
+
+            elif mode == 'categorical':
+                if not cat1 or not cat2:
+                    msg = "請選擇兩個類別變數"
+                    return msg, msg
+
+                # Dynamic Plotly Code (Categorical)
+                dynamic_code = f"""```python
+import plotly.express as px
+import pandas as pd
+
+# 假設 df 是您的 DataFrame
+# df = pd.read_csv('your_data.csv') # 或其他載入方式
+
+cat1 = '{cat1}'
+cat2 = '{cat2}'
+
+# 檢查唯一值數量 (可選)
+# if df[cat1].nunique() > 20 or df[cat2].nunique() > 20:
+#     print(f"警告: 類別變數 '{cat1}' 或 '{cat2}' 的唯一值可能過多")
+# else:
+
+ct = pd.crosstab(df[cat1], df[cat2])
+fig = px.imshow(
+    ct,
+    text_auto=True,
+    labels=dict(color="計數"),
+    title=f"{{cat1}} 與 {{cat2}} 的交叉表熱力圖",
+    aspect="auto",
+    color_continuous_scale="Blues"
+)
+fig.update_layout(
+    xaxis_title=cat2,
+    yaxis_title=cat1
+)
+fig.show()
+```"""
+
+                # Static Seaborn Code (Categorical)
+                static_code = f"""```python
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# 假設 df 是您的 DataFrame
+# df = pd.read_csv('your_data.csv') # 或其他載入方式
+# plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] # 設定中文字體 (如果需要)
+# plt.rcParams['axes.unicode_minus'] = False # 解決負號顯示問題
+
+cat1 = '{cat1}'
+cat2 = '{cat2}'
+
+# 檢查唯一值數量 (可選)
+# if df[cat1].nunique() > 20 or df[cat2].nunique() > 20:
+#     print(f"警告: 類別變數 '{cat1}' 或 '{cat2}' 的唯一值可能過多")
+# else:
+
+ct = pd.crosstab(df[cat1], df[cat2])
+plt.figure(figsize=(10, 8))
+sns.heatmap(ct, annot=True, fmt='d', cmap='Blues')
+plt.title(f"{{cat1}} 與 {{cat2}} 的交叉表熱力圖")
+plt.xticks(rotation=45, ha='right')
+plt.yticks(rotation=0)
+plt.tight_layout()
+plt.show()
+```"""
+            else:
+                 msg = "未知的檢視類型"
+                 return msg, msg
+
+        except Exception as e:
+            print(f"Error generating code snippets: {e}")
+            error_msg = f"生成程式碼時發生錯誤: {e}"
+            return error_msg, error_msg
+
+        if view_mode == 'dynamic':
+            return dynamic_code, static_code # Return both, visibility handled by CSS
+        elif view_mode == 'static':
+            return dynamic_code, static_code # Return both, visibility handled by CSS
+        else:
+            return dynamic_code, static_code # Default case
 
 # --- End of Callback Registration ---
 

@@ -63,6 +63,34 @@ layout = html.Div([
     html.Div([
         dcc.Graph(id='bar-plotly-graph', style={'display': 'block'}),
         html.Img(id='bar-static-img', style={'display': 'none', 'maxWidth': '100%'})
+    ]),
+
+    # Section for Dynamic Code Snippet
+    html.Div(id='dynamic-code-section-bar', children=[
+        html.H4("動態圖表範例程式碼"),
+        dcc.Markdown(
+            id='dynamic-code-block-bar',
+            style={
+                'whiteSpace': 'pre-wrap',
+                'backgroundColor': '#f8f8f8',
+                'padding': '10px',
+                'border': '1px solid #ccc'
+            }
+        )
+    ]),
+
+    # Section for Static Code Snippet
+    html.Div(id='static-code-section-bar', children=[
+        html.H4("靜態圖表範例程式碼"),
+        dcc.Markdown(
+            id='static-code-block-bar',
+            style={
+                'whiteSpace': 'pre-wrap',
+                'backgroundColor': '#f8f8f8',
+                'padding': '10px',
+                'border': '1px solid #ccc'
+            }
+        )
     ])
 ])
 
@@ -240,6 +268,122 @@ def register_callbacks(app):
             # Ensure Matplotlib figure is closed
             if 'fig_static' in locals() and fig_static:
                  plt.close(fig_static)
+
+    # --- Callback to toggle code section visibility ---
+    @app.callback(
+        [Output('dynamic-code-section-bar', 'style'),
+         Output('static-code-section-bar', 'style')],
+        [Input('bar-plot-type-radio', 'value')]
+    )
+    def toggle_code_section_visibility(view_mode):
+        if view_mode == 'dynamic':
+            return {'display': 'block'}, {'display': 'none'}
+        elif view_mode == 'static':
+            return {'display': 'none'}, {'display': 'block'}
+        return {'display': 'block'}, {'display': 'none'} # Default to showing dynamic
+
+    # --- Callback to update code snippets ---
+    @app.callback(
+        [Output('dynamic-code-block-bar', 'children'),
+         Output('static-code-block-bar', 'children')],
+        [Input('filtered-data-store', 'data'),
+         Input('bar-category-dropdown', 'value'),
+         Input('bar-value-dropdown', 'value'),
+         Input('bar-group-dropdown', 'value'),
+         Input('bar-mode-dropdown', 'value'),
+         Input('bar-plot-type-radio', 'value')]
+    )
+    def update_bar_code_snippets(stored_data_json, category_col, value_col, group_col, bar_mode, view_mode):
+        if stored_data_json is None or category_col is None:
+            msg = "請先選擇類別欄位"
+            return msg, msg
+
+        # Dynamic (Plotly) code generation
+        plotly_params = f"df, x='{category_col}'"
+        if value_col:
+            plotly_params += f", y='{value_col}'"
+            if group_col:
+                plotly_params += f", color='{group_col}'"
+            plotly_params += f", barmode='{bar_mode}'"
+            plotly_params += f", title='{value_col} (平均) 依據 {category_col} 的分布"
+            if group_col:
+                 plotly_params += f" (依據 {group_col} 分組)'"
+            else:
+                 plotly_params += "'"
+        else:
+            plotly_params += ", y='計數'" # Assuming count plot if no value_col
+            plotly_params += f", title='{category_col} 的分布'"
+
+
+        plotly_code = f"""```python
+import plotly.express as px
+import pandas as pd
+# Assuming 'df' is your pandas DataFrame
+
+# If plotting counts (no value column selected):
+# value_counts = df['{category_col}'].value_counts().reset_index()
+# value_counts.columns = ['{category_col}', '計數']
+# fig = px.bar(value_counts, x='{category_col}', y='計數', title='{category_col} 的分布')
+
+# If plotting aggregated values (value column selected):
+# agg_df = df.groupby(['{category_col}'{', "' + group_col + '"' if group_col else ''}], observed=True)['{value_col}'].mean().reset_index()
+# fig = px.bar(agg_df, x='{category_col}', y='{value_col}'{', color="' + group_col + '"' if group_col else ''}, barmode='{bar_mode}', title='...') # Add appropriate title
+
+# Example using provided parameters (might need adjustment based on actual aggregation)
+fig = px.bar({plotly_params})
+fig.show()
+```"""
+
+        # Static (Seaborn) code generation
+        static_code = f"""```python
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
+# Assuming 'df' is your pandas DataFrame
+# Set font for Chinese characters if needed:
+# plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']
+# plt.rcParams['axes.unicode_minus'] = False
+
+plt.figure(figsize=(10, 6))
+"""
+        if value_col:
+            static_code += f"sns.barplot(data=df, x='{category_col}', y='{value_col}'"
+            if group_col:
+                static_code += f", hue='{group_col}'"
+            static_code += ")\n"
+            static_code += f"plt.ylabel('{value_col} (平均)')\n"
+            title = f"'{value_col} (平均) 依據 {category_col} 的分布"
+            if group_col:
+                title += f"\\n依據 {group_col} 分組'"
+            else:
+                title += "'"
+
+        else: # Count plot
+            static_code += f"sns.countplot(data=df, x='{category_col}'"
+            if group_col:
+                static_code += f", hue='{group_col}'"
+            static_code += ")\n"
+            static_code += "plt.ylabel('計數')\n"
+            title = f"'{category_col} 的分布"
+            if group_col:
+                title += f"\\n依據 {group_col} 分組'"
+            else:
+                title += "'"
+
+        static_code += f"plt.title({title})\n"
+        static_code += f"plt.xlabel('{category_col}')\n"
+        static_code += "plt.xticks(rotation=45, ha='right') # Rotate labels if needed\n"
+        static_code += "plt.tight_layout()\n"
+        static_code += "plt.show()\n```"
+
+
+        if view_mode == 'dynamic':
+            return plotly_code, ""
+        elif view_mode == 'static':
+            return "", static_code
+        else:
+            return "", ""
+
 
     # Callback to populate dropdowns based on stored data
     @app.callback(
