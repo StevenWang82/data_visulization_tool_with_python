@@ -1001,11 +1001,15 @@ def register_callbacks(app):
             filtered_df_json = df_filtered.to_json(orient='split')
             filter_status_msg = f"篩選已套用 ({len(df_filtered)} / {len(df)} 行)."
             if status_messages:
-                 filter_status_msg += f" 條件: {'; '.join(status_messages)}"
+                filter_status_msg_display = html.Div([
+                    filter_status_msg,
+                    html.Ul([html.Li(msg) for msg in status_messages])
+                ], style={'color': 'green' if len(df_filtered) < len(df) else 'black'})
             else:
-                 filter_status_msg = "篩選條件未變更或無效，顯示所有資料。" if len(df_filtered) == len(df) else filter_status_msg
-
-            filter_status_msg_display = html.Div(filter_status_msg, style={'color': 'green' if status_messages and len(df_filtered) < len(df) else ('darkgray' if not status_messages else 'black')})
+                filter_status_msg_display = html.Div(
+                    "篩選條件未變更或無效，顯示所有資料。" if len(df_filtered) == len(df) else filter_status_msg,
+                    style={'color': 'darkgray' if not status_messages else 'black'}
+                )
 
             preview_cols_out = [{"name": i, "id": i} for i in df_filtered.columns]
             preview_data_out = df_filtered.to_dict('records')
