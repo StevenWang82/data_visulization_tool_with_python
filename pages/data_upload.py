@@ -373,7 +373,11 @@ def register_callbacks(app):
             df_json = df.to_json(orient='split')
             original_data_out = df_json # Store original data
             filtered_data_out = df_json # Initially, filtered data is the same as original
-            filter_options_out = [{'label': col, 'value': col} for col in df.columns]
+            # 修改這裡：為每個欄位添加資料類型信息
+            filter_options_out = [
+                {'label': f"{col} ({df[col].dtype})", 'value': col} 
+                for col in df.columns
+            ]
             filter_state_out = {} # Clear any previous filter state
             print("新資料已儲存至 stored-data 和 filtered-data-store。篩選下拉選單已更新。篩選狀態已清除。")
             return original_data_out, filtered_data_out, filter_state_out, status_msg, filter_options_out
@@ -473,7 +477,8 @@ def register_callbacks(app):
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
             # 填入適合日期轉換的物件/字串類型欄位
             potential_date_cols = df.select_dtypes(include=['object']).columns.tolist()
-            options = [{'label': col, 'value': col} for col in potential_date_cols]
+            # 修改這裡：為每個欄位添加資料類型信息
+            options = [{'label': f"{col} ({df[col].dtype})", 'value': col} for col in potential_date_cols]
             print(f"Updating modal dropdown options: {options}")
             return options
         except Exception as e:
@@ -545,7 +550,7 @@ def register_callbacks(app):
 
             # Update modal dropdown options (remove column if no longer object/string)
             potential_date_cols = df.select_dtypes(include=['object']).columns.tolist()
-            modal_dropdown_options = [{'label': col, 'value': col} for col in potential_date_cols]
+            modal_dropdown_options = [{'label': f"{col} ({df[col].dtype})", 'value': col} for col in potential_date_cols]
 
             print("Modal conversion successful, updating stored-data, filtered-data-store, tables, and modal dropdown.")
             return (new_stored_data, status_msg,
