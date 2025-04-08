@@ -112,7 +112,15 @@ layout = html.Div([
                         value=10,
                         clearable=False,
                         style={'width': '150px', 'display': 'inline-block', 'verticalAlign': 'middle'}
-                    )
+                    ),
+                    html.Div([
+                        html.Span("資料總列數: ", style={'marginRight': '5px'}),
+                        dbc.Badge(
+                            id='data-total-rows',
+                            color="info",
+                            className="ms-1"
+                        )
+                    ], style={'marginTop': '10px', 'fontSize': '0.9em'})
                 ], style={'marginBottom': '10px'}),
                 dash_table.DataTable(
                     id='data-table',
@@ -123,10 +131,17 @@ layout = html.Div([
                     page_action='native',
                     sort_action='native',
                     filter_action='none',
-                    style_table={'overflowX': 'auto'},
+                    style_table={
+                        'overflowX': 'auto',
+                        'minHeight': '450px',
+                        'maxHeight': '450px',
+                        'marginBottom': '50px'
+                    },
                     style_cell={
                         'height': 'auto',
-                        'minWidth': '100px', 'width': '100px', 'maxWidth': '180px',
+                        'minWidth': '100px', 
+                        'width': '100px', 
+                        'maxWidth': '180px',
                         'whiteSpace': 'normal',
                         'textAlign': 'left',
                         'padding': '5px'
@@ -139,7 +154,11 @@ layout = html.Div([
                         {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(248, 248, 248)'}
                     ]
                 )
-            ], style={'padding': '10px'})
+            ], style={
+                'padding': '10px',
+                'marginBottom': '20px',
+                'minHeight': '550px'  # 增加外層容器高度以確保有足夠空間顯示分頁
+            })
         ]),
 
         # --- 分頁 2：資料類別總覽 ---
@@ -154,7 +173,15 @@ layout = html.Div([
                         value=25,
                         clearable=False,
                         style={'width': '150px', 'display': 'inline-block', 'verticalAlign': 'middle'}
-                    )
+                    ),
+                    html.Div([
+                        html.Span("類別總數: ", style={'marginRight': '5px'}),
+                        dbc.Badge(
+                            id='category-total-rows',
+                            color="info",
+                            className="ms-1"
+                        )
+                    ], style={'marginTop': '10px', 'fontSize': '0.9em'})
                 ], style={'marginBottom': '10px'}),
                 dash_table.DataTable(
                     id='category-overview-table',
@@ -165,8 +192,19 @@ layout = html.Div([
                     page_action='native',
                     sort_action='native',
                     filter_action='none',
-                    style_table={'overflowX': 'auto'},
-                    style_cell={'textAlign': 'left', 'padding': '5px', 'minWidth': '80px', 'whiteSpace': 'normal', 'height': 'auto'},
+                    style_table={
+                        'overflowX': 'auto',
+                        'minHeight': '450px',
+                        'maxHeight': '450px',
+                        'marginBottom': '50px'
+                    },
+                    style_cell={
+                        'textAlign': 'left', 
+                        'padding': '5px', 
+                        'minWidth': '80px', 
+                        'whiteSpace': 'normal', 
+                        'height': 'auto'
+                    },
                     style_header={
                         'backgroundColor': 'rgb(220, 220, 220)',
                         'fontWeight': 'bold'
@@ -175,8 +213,11 @@ layout = html.Div([
                         {'if': {'row_index': 'odd'}, 'backgroundColor': 'rgb(245, 245, 245)'}
                     ]
                 ),
-                # 已移除舊的日期轉換區塊
-            ], style={'padding': '10px'})
+            ], style={
+                'padding': '10px',
+                'marginBottom': '20px',
+                'minHeight': '550px'  # 增加外層容器高度以確保有足夠空間顯示分頁
+            })
         ]),
     ]),
 ])
@@ -349,8 +390,10 @@ def register_callbacks(app):
          Output('data-table', 'page_size'),
          Output('category-overview-table', 'columns'),
          Output('category-overview-table', 'data'),
-         Output('category-overview-table', 'page_size')],
-        [Input('filtered-data-store', 'data'), # Triggered when filtered data changes
+         Output('category-overview-table', 'page_size'),
+         Output('data-total-rows', 'children'),  # 新增：預覽表格的資料總數
+         Output('category-total-rows', 'children')],  # 新增：類別總覽的資料總數
+        [Input('filtered-data-store', 'data'),
          Input('rows-per-page-dropdown', 'value'),
          Input('category-rows-per-page-dropdown', 'value')]
     )
@@ -369,17 +412,21 @@ def register_callbacks(app):
                 preview_cols = [{"name": i, "id": i} for i in df_filtered.columns]
                 preview_data = df_filtered.to_dict('records')
                 category_data, category_cols = generate_category_overview_data(df_filtered)
+                
+                # 計算資料總數
+                preview_total = f"{len(df_filtered):,}"  # 添加千位分隔符
+                category_total = f"{len(category_data):,}"  # 類別總覽的總數
+                
                 print("表格已根據 filtered-data-store 更新。")
                 return (preview_cols, preview_data, current_preview_page_size,
-                        category_cols, category_data, current_category_page_size)
+                        category_cols, category_data, current_category_page_size,
+                        preview_total, category_total)
             except Exception as e:
                 print(f"從 filtered-data-store 載入資料以更新表格時發生錯誤: {e}")
-                # Return empty tables on error
-                return [], [], current_preview_page_size, [], [], current_category_page_size
+                return [], [], current_preview_page_size, [], [], current_category_page_size, "0", "0"
         else:
             # No data in the store, return empty tables
-            print("filtered-data-store 中無資料，清除表格。")
-            return [], [], current_preview_page_size, [], [], current_category_page_size
+            return [], [], current_preview_page_size, [], [], current_category_page_size, "0", "0"
 
     # --- 回調：開啟/關閉日期轉換彈出視窗 ---
     @app.callback(
@@ -716,33 +763,41 @@ def register_callbacks(app):
             return [html.Div(f"生成篩選控制項時發生錯誤: {e}", style={'color': 'red'})]
 
 
-# --- 回調：套用篩選 ---
+    # --- 回調：套用篩選 ---
     @app.callback(
         [Output('filtered-data-store', 'data', allow_duplicate=True),
          Output('filter-state-store', 'data', allow_duplicate=True),
-         Output('filter-status-message-store', 'data'), # Output to global store
+         Output('filter-status-message-store', 'data'), # Changed Output to global store
          Output('data-table', 'columns', allow_duplicate=True),
          Output('data-table', 'data', allow_duplicate=True),
          Output('category-overview-table', 'columns', allow_duplicate=True),
          Output('category-overview-table', 'data', allow_duplicate=True)],
         [Input('apply-filter-button', 'n_clicks')], # Trigger
         [State('stored-data', 'data'), # Read original data
-         State({'type': 'filter-control', 'index': dash.ALL, 'control': dash.ALL}, 'id'),
+         State({'type': 'filter-control', 'index': dash.ALL, 'control': dash.ALL}, 'id'), # Get IDs of all controls
+         # Get specific properties for different control types (Dash matches these by order)
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'checklist'}, 'value'),
-         State({'type': 'filter-control', 'index': dash.ALL, 'control': 'range-slider'}, 'value'),
+         State({'type': 'filter-control', 'index': dash.ALL, 'control': 'range-slider'}, 'value'), # Get RangeSlider value
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'date-range'}, 'start_date'),
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'date-range'}, 'end_date'),
-         State('filter-column-dropdown', 'value')],
+         State('filter-column-dropdown', 'value')], # Get the list of columns selected for filtering
         prevent_initial_call=True
     )
     def apply_filters(n_clicks, stored_data_json,
-                      filter_control_ids,
-                      checklist_values,
-                      range_slider_values,
-                      start_dates,
-                      end_dates,
-                      selected_filter_columns):
+                      filter_control_ids, # List of ALL control ID dicts e.g. {'type': 'filter-control', 'index': 'colA', 'control': 'checklist'}
+                      checklist_values,   # List of values ONLY from checklists
+                      range_slider_values,# List of values ONLY from range sliders
+                      start_dates,        # List of values ONLY from date pickers (start)
+                      end_dates,          # List of values ONLY from date pickers (end)
+                      selected_filter_columns): # Columns selected in the main dropdown
         print(f"--- apply_filters triggered ---")
+        # Print received values for debugging
+        # print(f"Received checklist_values: {checklist_values}")
+        # print(f"Received range_slider_values: {range_slider_values}")
+        # print(f"Received start_dates: {start_dates}")
+        # print(f"Received end_dates: {end_dates}")
+        # print(f"Received filter_control_ids: {filter_control_ids}")
+        # print(f"Selected filter columns: {selected_filter_columns}")
 
         if not n_clicks or not stored_data_json or not selected_filter_columns:
             print("Apply filter conditions not met (no click, data, or selected columns).")
@@ -944,22 +999,13 @@ def register_callbacks(app):
 
             # --- Prepare Outputs ---
             filtered_df_json = df_filtered.to_json(orient='split')
-
-            # Build multi-line status message as list of children
-            status_children = [f"篩選已套用 ({len(df_filtered)} / {len(df)} 行)."]
+            filter_status_msg = f"篩選已套用 ({len(df_filtered)} / {len(df)} 行)."
             if status_messages:
-                status_children.append("條件:")
-                for msg in status_messages:
-                    status_children.append(html.Br())
-                    status_children.append(f"- {msg}")
+                 filter_status_msg += f" 條件: {'; '.join(status_messages)}"
             else:
-                if len(df_filtered) == len(df):
-                    status_children = ["篩選條件未變更或無效，顯示所有資料。"]
+                 filter_status_msg = "篩選條件未變更或無效，顯示所有資料。" if len(df_filtered) == len(df) else filter_status_msg
 
-            filter_status_msg_display = html.Div(
-                status_children,
-                style={'color': 'green' if status_messages and len(df_filtered) < len(df) else ('darkgray' if not status_messages else 'black')}
-            )
+            filter_status_msg_display = html.Div(filter_status_msg, style={'color': 'green' if status_messages and len(df_filtered) < len(df) else ('darkgray' if not status_messages else 'black')})
 
             preview_cols_out = [{"name": i, "id": i} for i in df_filtered.columns]
             preview_data_out = df_filtered.to_dict('records')
