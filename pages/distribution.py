@@ -11,6 +11,9 @@ from io import BytesIO
 import base64
 import dash_bootstrap_components as dbc # Import dbc for Alert
 
+# 設定分組變數唯一值最大門檻
+MAX_UNIQUE_GROUP_CATEGORIES = 50
+
 # Configure Matplotlib to use 'Agg' backend
 import matplotlib
 matplotlib.use('Agg')
@@ -92,8 +95,8 @@ def register_callbacks(app):
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
 
             # Check unique values for grouping variable
-            if grouping_col and df[grouping_col].dtype in ['object', 'category'] and df[grouping_col].nunique() > 20:
-                warning_message = f"分組變數 '{grouping_col}' 的唯一值超過 20 個，不適合分組繪圖。"
+            if grouping_col and df[grouping_col].dtype in ['object', 'category'] and df[grouping_col].nunique() > MAX_UNIQUE_GROUP_CATEGORIES:
+                warning_message = f"分組變數 '{grouping_col}' 的唯一值超過 {MAX_UNIQUE_GROUP_CATEGORIES} 個，不適合分組繪圖。"
                 fig = go.Figure()
                 fig.add_annotation(
                     text=warning_message, xref="paper", yref="paper",
@@ -148,8 +151,8 @@ def register_callbacks(app):
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
 
             # Check unique values for grouping variable
-            if grouping_col and df[grouping_col].dtype in ['object', 'category'] and df[grouping_col].nunique() > 20:
-                warning_message = f"分組變數 '{grouping_col}' 的唯一值超過 20 個，\n不適合分組繪圖。"
+            if grouping_col and df[grouping_col].dtype in ['object', 'category'] and df[grouping_col].nunique() > MAX_UNIQUE_GROUP_CATEGORIES:
+                warning_message = f"分組變數 '{grouping_col}' 的唯一值超過 {MAX_UNIQUE_GROUP_CATEGORIES} 個，\n不適合分組繪圖。"
                 fig_warn, ax_warn = plt.subplots(figsize=(8, 2), tight_layout=True)
                 ax_warn.text(0.5, 0.5, warning_message, ha='center', va='center', fontsize=12, color='red')
                 ax_warn.axis('off')
@@ -219,6 +222,12 @@ def register_callbacks(app):
             # Use numpy for robust numeric check
             numeric_cols = df.select_dtypes(include=np.number).columns
             categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+
+            # 過濾唯一值超過門檻的類別變數
+            categorical_cols = [
+                col for col in categorical_cols
+                if df[col].nunique() <= MAX_UNIQUE_GROUP_CATEGORIES
+            ]
 
             numerical_options = [{'label': f"{col} (numeric)", 'value': col} for col in numeric_cols]
             grouping_options = []

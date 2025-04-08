@@ -270,14 +270,23 @@ def register_callbacks(app):
             numeric_cols = df.select_dtypes(include=np.number).columns
             categorical_cols = df.select_dtypes(include=['object', 'category']).columns
 
-            # Create options
-            categorical_options = [{'label': f"{col} (categorical)", 'value': col} for col in categorical_cols]
-            numerical_options = [{'label': f"{col} (numeric)", 'value': col} for col in numeric_cols]
-            grouping_options = categorical_options # Grouping is typically categorical
+            # Filter categorical columns with unique count <= 50
+            filtered_categorical_cols = []
+            for col in categorical_cols:
+                try:
+                    nunique = df[col].nunique(dropna=False)
+                    if nunique <= 50:
+                        filtered_categorical_cols.append(col)
+                except Exception as e:
+                    print(f"Error counting unique values for column {col}: {e}")
 
-            # Set default values (e.g., first categorical for category, first numeric for value)
-            default_category = categorical_cols[0] if not categorical_cols.empty else None
-            # Value and group are optional, so default to None
+            # Create options
+            categorical_options = [{'label': f"{col} (categorical)", 'value': col} for col in filtered_categorical_cols]
+            numerical_options = [{'label': f"{col} (numeric)", 'value': col} for col in numeric_cols]
+            grouping_options = categorical_options  # Grouping is typically categorical
+
+            # Set default values (first filtered categorical, or None)
+            default_category = filtered_categorical_cols[0] if filtered_categorical_cols else None
             default_value = None
             default_group = None
 

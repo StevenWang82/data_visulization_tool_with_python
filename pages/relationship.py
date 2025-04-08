@@ -15,6 +15,9 @@ import dash_bootstrap_components as dbc # Import dbc for Alert
 import matplotlib
 matplotlib.use('Agg')
 
+# 設定分組變數唯一值最大門檻
+MAX_UNIQUE_GROUP_CATEGORIES = 50
+
 # --- Layout Definition ---
 layout = html.Div([
 
@@ -82,8 +85,8 @@ def register_callbacks(app):
             df = pd.read_json(io.StringIO(stored_data_json), orient='split')
 
             # Check for grouping variable unique value count
-            if group_var and df[group_var].dtype in ['object', 'category'] and df[group_var].nunique() > 20:
-                warning_message = f"分組變數 '{group_var}' 的唯一值超過 20 個，不適合分組繪圖。"
+            if group_var and df[group_var].dtype in ['object', 'category'] and df[group_var].nunique() > MAX_UNIQUE_GROUP_CATEGORIES:
+                warning_message = f"分組變數 '{group_var}' 的唯一值超過 {MAX_UNIQUE_GROUP_CATEGORIES} 個，不適合分組繪圖。"
                 fig = go.Figure()
                 fig.add_annotation(
                     text=warning_message,
@@ -136,8 +139,8 @@ def register_callbacks(app):
             plt.rcParams['axes.unicode_minus'] = False
 
             # Check for grouping variable unique value count
-            if group_var and df[group_var].dtype in ['object', 'category'] and df[group_var].nunique() > 20:
-                warning_message = f"分組變數 '{group_var}' 的唯一值超過 20 個，\n不適合分組繪圖。"
+            if group_var and df[group_var].dtype in ['object', 'category'] and df[group_var].nunique() > MAX_UNIQUE_GROUP_CATEGORIES:
+                warning_message = f"分組變數 '{group_var}' 的唯一值超過 {MAX_UNIQUE_GROUP_CATEGORIES} 個，\n不適合分組繪圖。"
                 fig_warn, ax_warn = plt.subplots(figsize=(8, 2), tight_layout=True)
                 ax_warn.text(0.5, 0.5, warning_message, ha='center', va='center', fontsize=12, color='red')
                 ax_warn.axis('off') # Hide axes
@@ -210,10 +213,31 @@ def register_callbacks(app):
             # Identify column types
             numeric_cols = df.select_dtypes(include=np.number).columns
             categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+            datetime_cols = df.select_dtypes(include=['datetime', 'datetimetz']).columns
+            bool_cols = df.select_dtypes(include=['bool']).columns
             all_cols = df.columns
 
-            # Create options (allow any column for var1/var2, categorical for group)
-            all_options = [{'label': col, 'value': col} for col in all_cols]
+            # 過濾唯一值超過門檻的類別變數
+            categorical_cols = [
+                col for col in categorical_cols
+                if df[col].nunique() <= MAX_UNIQUE_GROUP_CATEGORIES
+            ]
+
+            # Create options with data type labels for var1 and var2 dropdowns
+            all_options = []
+            for col in all_cols:
+                if col in numeric_cols:
+                    dtype_label = "numeric"
+                elif col in categorical_cols:
+                    dtype_label = "categorical"
+                elif col in datetime_cols:
+                    dtype_label = "datetime"
+                elif col in bool_cols:
+                    dtype_label = "boolean"
+                else:
+                    dtype_label = "other"
+                all_options.append({'label': f"{col} ({dtype_label})", 'value': col})
+
             grouping_options = [{'label': f"{col} (categorical)", 'value': col} for col in categorical_cols]
 
             # Set default values (e.g., first two numeric columns if available)
