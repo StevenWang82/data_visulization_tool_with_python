@@ -163,7 +163,7 @@ def register_callbacks(app):
                     corr_df,
                     title="變數間的相關性熱力圖",
                     labels=dict(color="相關係數"),
-                    color_continuous_scale="RdBu",
+                    color_continuous_scale="Blues",
                     aspect="auto"
                 )
                 fig.update_layout(
@@ -241,7 +241,7 @@ def register_callbacks(app):
 
                 corr_df = df[numeric_cols].corr()
                 fig_static, ax = plt.subplots(figsize=(10, 8), tight_layout=True)
-                sns.heatmap(corr_df, annot=True, cmap='RdBu', center=0, ax=ax)
+                sns.heatmap(corr_df, annot=True, cmap='Blues', ax=ax)
                 ax.set_title("變數間的相關性熱力圖")
                 plt.xticks(rotation=45, ha='right')
                 plt.yticks(rotation=0)
