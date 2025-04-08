@@ -33,6 +33,7 @@ def serve_layout():
         dcc.Store(id='stored-data'), # Stores the original uploaded/converted DataFrame JSON
         dcc.Store(id='filtered-data-store'), # Stores the currently displayed (potentially filtered) DataFrame JSON
         dcc.Store(id='filter-state-store'), # Stores the state of the filter controls
+        dcc.Store(id='filter-status-message-store'), # Stores the user-friendly filter status message (NEW)
         # --- End Stores ---
         navbar, # 將導覽列放在頂部
         dbc.Container([ # 使用標準容器來容納頁面內容，提供左右邊距
