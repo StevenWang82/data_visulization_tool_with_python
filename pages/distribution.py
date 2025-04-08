@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from io import BytesIO
 import base64
+import dash_bootstrap_components as dbc # Import dbc for Alert
 
 # Configure Matplotlib to use 'Agg' backend
 import matplotlib
@@ -16,6 +17,8 @@ matplotlib.use('Agg')
 
 # --- Layout Definition ---
 layout = html.Div([
+    # --- Filter Status Display Area (NEW) ---
+
     html.H2("分布圖"),
     html.P("選擇變數以視覺化其分布。"),
     html.Div([
@@ -51,6 +54,9 @@ layout = html.Div([
             labelStyle={'display': 'inline-block', 'margin-right': '10px'}
         ),
     ]),
+    html.Div(id='distribution-filter-status-display', 
+            style={'marginBottom': '15px', 'padding': '10px', 'border': '1px solid #ddd', 'borderRadius': '5px', 'backgroundColor': '#f9f9f9'}),
+
     html.Div([
         dcc.Graph(id='distribution-plotly-graph', style={'display': 'block'}),
         html.Img(id='distribution-static-img', style={'display': 'none', 'maxWidth': '100%'})
@@ -230,6 +236,17 @@ def register_callbacks(app):
         except Exception as e:
             print(f"Error updating distribution dropdowns: {e}")
             return default_return # Return default tuple on error
+
+    # --- Callback to update filter status display on this page ---
+    @app.callback(
+        Output('distribution-filter-status-display', 'children'),
+        Input('filter-status-message-store', 'data')
+    )
+    def update_distribution_filter_status(status_message):
+        if status_message:
+            return status_message
+        
+        return "目前未套用篩選條件。"
 
 # --- End of Callback Registration ---
 

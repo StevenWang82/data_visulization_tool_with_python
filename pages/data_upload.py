@@ -11,6 +11,7 @@ import json # 用於處理篩選狀態
 layout = html.Div([
     # Data Stores are now defined globally in app.py
 
+    # --- Filter Status Display Area (NEW) ---
     html.H3("載入 CSV 資料"),
     dcc.Upload(
         id='upload-data',
@@ -30,6 +31,9 @@ layout = html.Div([
         dbc.Button('日期格式轉換', id='open-date-modal-button', n_clicks=0, className="me-2 mb-3"), # me-2 for margin-end
         dbc.Button('資料篩選', id='open-filter-modal-button', n_clicks=0, className="mb-3"), # 新增篩選按鈕
     ]),
+    html.Div(id='data-upload-filter-status-display', 
+             style={'marginBottom': '15px', 'padding': '10px', 'border': '1px solid #ddd', 'borderRadius': '5px', 'backgroundColor': '#f9f9f9'}),
+
 
     # --- 日期轉換彈出視窗 ---
     dbc.Modal(
@@ -82,7 +86,7 @@ layout = html.Div([
                     className="mb-3"
                 ),
                 html.Div(id='filter-controls-container', children=[]), # 動態生成篩選控制項
-                html.Div(id='filter-status', className="text-danger mt-2")
+                # Removed: html.Div(id='filter-status', className="text-danger mt-2")
             ]),
             dbc.ModalFooter([
                 dbc.Button('重設', id='reset-filter-button', n_clicks=0, color="secondary", className="me-auto"), # 重設按鈕
@@ -712,44 +716,37 @@ def register_callbacks(app):
             return [html.Div(f"生成篩選控制項時發生錯誤: {e}", style={'color': 'red'})]
 
 
-    # --- 回調：套用篩選 ---
+# --- 回調：套用篩選 ---
     @app.callback(
         [Output('filtered-data-store', 'data', allow_duplicate=True),
          Output('filter-state-store', 'data', allow_duplicate=True),
-         Output('filter-status', 'children'),
+         Output('filter-status-message-store', 'data'), # Output to global store
          Output('data-table', 'columns', allow_duplicate=True),
          Output('data-table', 'data', allow_duplicate=True),
          Output('category-overview-table', 'columns', allow_duplicate=True),
          Output('category-overview-table', 'data', allow_duplicate=True)],
         [Input('apply-filter-button', 'n_clicks')], # Trigger
         [State('stored-data', 'data'), # Read original data
-         State({'type': 'filter-control', 'index': dash.ALL, 'control': dash.ALL}, 'id'), # Get IDs of all controls
-         # Get specific properties for different control types (Dash matches these by order)
+         State({'type': 'filter-control', 'index': dash.ALL, 'control': dash.ALL}, 'id'),
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'checklist'}, 'value'),
-         State({'type': 'filter-control', 'index': dash.ALL, 'control': 'range-slider'}, 'value'), # Get RangeSlider value
+         State({'type': 'filter-control', 'index': dash.ALL, 'control': 'range-slider'}, 'value'),
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'date-range'}, 'start_date'),
          State({'type': 'filter-control', 'index': dash.ALL, 'control': 'date-range'}, 'end_date'),
-         State('filter-column-dropdown', 'value')], # Get the list of columns selected for filtering
+         State('filter-column-dropdown', 'value')],
         prevent_initial_call=True
     )
     def apply_filters(n_clicks, stored_data_json,
-                      filter_control_ids, # List of ALL control ID dicts e.g. {'type': 'filter-control', 'index': 'colA', 'control': 'checklist'}
-                      checklist_values,   # List of values ONLY from checklists
-                      range_slider_values,# List of values ONLY from range sliders
-                      start_dates,        # List of values ONLY from date pickers (start)
-                      end_dates,          # List of values ONLY from date pickers (end)
-                      selected_filter_columns): # Columns selected in the main dropdown
+                      filter_control_ids,
+                      checklist_values,
+                      range_slider_values,
+                      start_dates,
+                      end_dates,
+                      selected_filter_columns):
         print(f"--- apply_filters triggered ---")
-        # Print received values for debugging
-        # print(f"Received checklist_values: {checklist_values}")
-        # print(f"Received range_slider_values: {range_slider_values}")
-        # print(f"Received start_dates: {start_dates}")
-        # print(f"Received end_dates: {end_dates}")
-        # print(f"Received filter_control_ids: {filter_control_ids}")
-        # print(f"Selected filter columns: {selected_filter_columns}")
 
         if not n_clicks or not stored_data_json or not selected_filter_columns:
             print("Apply filter conditions not met (no click, data, or selected columns).")
+            # Update the global status store with the message
             return no_update, no_update, "請先選擇欄位並設定篩選條件。", no_update, no_update, no_update, no_update
 
         try:
@@ -947,13 +944,22 @@ def register_callbacks(app):
 
             # --- Prepare Outputs ---
             filtered_df_json = df_filtered.to_json(orient='split')
-            filter_status_msg = f"篩選已套用 ({len(df_filtered)} / {len(df)} 行)."
-            if status_messages:
-                 filter_status_msg += f" 條件: {'; '.join(status_messages)}"
-            else:
-                 filter_status_msg = "篩選條件未變更或無效，顯示所有資料。" if len(df_filtered) == len(df) else filter_status_msg
 
-            filter_status_msg_display = html.Div(filter_status_msg, style={'color': 'green' if status_messages and len(df_filtered) < len(df) else ('darkgray' if not status_messages else 'black')})
+            # Build multi-line status message as list of children
+            status_children = [f"篩選已套用 ({len(df_filtered)} / {len(df)} 行)."]
+            if status_messages:
+                status_children.append("條件:")
+                for msg in status_messages:
+                    status_children.append(html.Br())
+                    status_children.append(f"- {msg}")
+            else:
+                if len(df_filtered) == len(df):
+                    status_children = ["篩選條件未變更或無效，顯示所有資料。"]
+
+            filter_status_msg_display = html.Div(
+                status_children,
+                style={'color': 'green' if status_messages and len(df_filtered) < len(df) else ('darkgray' if not status_messages else 'black')}
+            )
 
             preview_cols_out = [{"name": i, "id": i} for i in df_filtered.columns]
             preview_data_out = df_filtered.to_dict('records')
@@ -972,7 +978,7 @@ def register_callbacks(app):
             # Reset to original data on error? Or just show error? Showing error is safer.
             error_msg_display = html.Div(f"套用篩選時發生錯誤: {e}", style={'color': 'red'})
             # Return original data in tables to avoid inconsistent state? Or no_update?
-            # Let's return no_update for data stores and tables, but update the status.
+            # Let's return no_update for data stores and tables, but update the global status store.
             return no_update, no_update, error_msg_display, no_update, no_update, no_update, no_update
 
 
@@ -980,7 +986,7 @@ def register_callbacks(app):
     @app.callback(
         [Output('filtered-data-store', 'data', allow_duplicate=True),
          Output('filter-state-store', 'data', allow_duplicate=True),
-         Output('filter-status', 'children', allow_duplicate=True),
+         Output('filter-status-message-store', 'data', allow_duplicate=True), # Changed Output to global store
          Output('data-table', 'columns', allow_duplicate=True),
          Output('data-table', 'data', allow_duplicate=True),
          Output('category-overview-table', 'columns', allow_duplicate=True),
@@ -1004,17 +1010,19 @@ def register_callbacks(app):
             category_data_out, category_cols_out = generate_category_overview_data(df_original)
 
             print("Filters reset. Updating filtered store to original data and clearing state.")
+            reset_message = "篩選條件已重設。" # Message for the global store
 
             return (stored_data_json, # Reset filtered store to original
                     {}, # Clear filter state
-                    None, # Clear filter status message
+                    reset_message, # Update global status store
                     preview_cols_out, preview_data_out,
                     category_cols_out, category_data_out,
                     None) # Clear selected columns in dropdown
 
         except Exception as e:
             print(f"Error resetting filters: {e}")
-            return no_update, no_update, html.Div(f"重設篩選時發生錯誤: {e}", style={'color': 'red'}), no_update, no_update, no_update, no_update, no_update
+            error_message = html.Div(f"重設篩選時發生錯誤: {e}", style={'color': 'red'})
+            return no_update, no_update, error_message, no_update, no_update, no_update, no_update, no_update
 
 
     # --- 回調：同步 RangeSlider -> Min/Max Inputs ---
@@ -1121,6 +1129,17 @@ def register_callbacks(app):
 
         return [input_min, input_max], range_text
 
+    # --- 回調：更新頁面上的篩選狀態顯示 ---
+    @app.callback(
+        Output('data-upload-filter-status-display', 'children'),
+        Input('filter-status-message-store', 'data')
+    )
+    def update_data_upload_filter_status(status_message):
+        if status_message:
+            # Return the status message directly (could be a string or html.Div)
+            return status_message
+        return "目前未套用篩選條件。" # Default message when no filter is applied or status is cleared
+
 # --- Removed sync_inputs_to_slider callback to break dependency cycle ---
 
 # 在 app.py 中的範例用法 (確保此函式被呼叫):
@@ -1129,6 +1148,9 @@ def register_callbacks(app):
 # server = app.server
 # app.layout = html.Div([
 #     dcc.Store(id='stored-data'), # 確保主佈局中存在 dcc.Store
+#     dcc.Store(id='filtered-data-store'),
+#     dcc.Store(id='filter-state-store'),
+#     dcc.Store(id='filter-status-message-store'), # Ensure global stores exist
 #     # ... 其他佈局元件
 #     html.Div(id='page-content')
 # ])

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from io import BytesIO
 import base64
+import dash_bootstrap_components as dbc # Import dbc for Alert
 
 # Configure Matplotlib to use 'Agg' backend
 import matplotlib
@@ -15,6 +16,7 @@ matplotlib.use('Agg')
 
 # --- Layout Definition ---
 layout = html.Div([
+
     html.H2("熱力圖"),
     html.P("選擇變數以視覺化相關性。"),
     html.Div([
@@ -37,6 +39,9 @@ layout = html.Div([
             labelStyle={'display': 'inline-block', 'margin-right': '10px'}
         ),
     ]),
+    html.Div(id='heatmap-filter-status-display',
+              style={'marginBottom': '15px', 'padding': '10px', 'border': '1px solid #ddd', 'borderRadius': '5px', 'backgroundColor': '#f9f9f9'}),
+
     html.Div([
         dcc.Graph(id='heatmap-plotly-graph', style={'display': 'block'}),
         html.Img(id='heatmap-static-img', style={'display': 'none', 'maxWidth': '100%'})
@@ -176,6 +181,16 @@ def register_callbacks(app):
         except Exception as e:
             print(f"Error updating heatmap dropdown: {e}")
             return default_return # Return default tuple on error
+
+    # --- Callback to update filter status display on this page ---
+    @app.callback(
+        Output('heatmap-filter-status-display', 'children'),
+        Input('filter-status-message-store', 'data')
+    )
+    def update_heatmap_filter_status(status_message):
+        if status_message:
+            return status_message
+        return "目前未套用篩選條件。"
 
 # --- End of Callback Registration ---
 
