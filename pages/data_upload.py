@@ -12,10 +12,10 @@ layout = html.Div([
     # Data Stores are now defined globally in app.py
 
     # --- Filter Status Display Area (NEW) ---
-    html.H3("載入 CSV 資料"),
+    html.H3("載入 CSV, Excel, JSON 資料"),
     dcc.Upload(
         id='upload-data',
-        children=html.Div(['拖放或 ', html.A('選擇 CSV 檔案')]),
+        children=html.Div(['拖放或 ', html.A('選擇 CSV, Excel, JSON 檔案')]),
         style={
             'width': '95%', 'height': '60px', 'lineHeight': '60px',
             'borderWidth': '1px', 'borderStyle': 'dashed',
@@ -223,43 +223,67 @@ layout = html.Div([
 ])
 
 # --- 解析函式 ---
-def parse_csv_simple(contents, filename):
-    """Parses CSV, returns df and message."""
-    print(f"parse_csv_simple called for: {filename}")
+def parse_uploaded_file(contents, filename):
+    """Parses uploaded file (csv, xlsx, json), returns df and message."""
+    print(f"parse_uploaded_file called for: {filename}")
     if contents is None:
-         return None, "未上傳檔案。"
+        return None, "未上傳檔案。"
     content_type, content_string = contents.split(',')
     decoded = base64.b64decode(content_string)
     try:
-        if not isinstance(filename, str) or not filename.lower().endswith('.csv'):
-             return None, "檔案類型無效。請上傳 CSV 檔案。"
+        if not isinstance(filename, str):
+            return None, "檔案名稱無效。"
 
-        print("嘗試使用 UTF-8 解碼讀取 CSV...")
-        try:
-            # 初始保留物件類型為字串，以便手動轉換
-            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')), keep_default_na=False, na_values=[''])
-            print("成功使用 UTF-8 讀取 CSV。")
-        except UnicodeDecodeError:
-            print("UTF-8 解碼失敗，嘗試 GBK...")
+        lower_name = filename.lower()
+        if lower_name.endswith('.csv'):
+            print("檢測到 CSV 檔案，嘗試使用 UTF-8 解碼讀取 CSV...")
             try:
-                df = pd.read_csv(io.StringIO(decoded.decode('gbk')), keep_default_na=False, na_values=[''])
-                print("成功使用 GBK 讀取 CSV。")
-            except Exception as decode_err:
-                error_msg_decode = f"解碼檔案時發生錯誤: {str(decode_err)}"
-                print(error_msg_decode)
-                return None, error_msg_decode
-        except pd.errors.ParserError as pe:
-             error_msg_parse = f"解析 CSV 時發生錯誤: {str(pe)}. 請檢查檔案格式。"
-             print(error_msg_parse)
-             return None, error_msg_parse
+                df = pd.read_csv(io.StringIO(decoded.decode('utf-8')), keep_default_na=False, na_values=[''])
+                print("成功使用 UTF-8 讀取 CSV。")
+            except UnicodeDecodeError:
+                print("UTF-8 解碼失敗，嘗試 GBK...")
+                try:
+                    df = pd.read_csv(io.StringIO(decoded.decode('gbk')), keep_default_na=False, na_values=[''])
+                    print("成功使用 GBK 讀取 CSV。")
+                except Exception as decode_err:
+                    error_msg_decode = f"解碼檔案時發生錯誤: {str(decode_err)}"
+                    print(error_msg_decode)
+                    return None, error_msg_decode
+            except pd.errors.ParserError as pe:
+                error_msg_parse = f"解析 CSV 時發生錯誤: {str(pe)}. 請檢查檔案格式。"
+                print(error_msg_parse)
+                return None, error_msg_parse
 
-        if df.empty:
-            return None, "CSV 檔案是空的。"
+            if df.empty:
+                return None, "CSV 檔案是空的。"
+            return df, f"成功載入 CSV 檔案 '{filename}'。"
 
-        # --- 已移除自動日期偵測 ---
-        print("自動日期偵測已移除。")
+        elif lower_name.endswith('.xlsx') or lower_name.endswith('.xls'):
+            print("檢測到 Excel 檔案，嘗試讀取...")
+            try:
+                df = pd.read_excel(io.BytesIO(decoded))
+                if df.empty:
+                    return None, "Excel 檔案是空的。"
+                return df, f"成功載入 Excel 檔案 '{filename}'。"
+            except Exception as e:
+                error_msg = f"讀取 Excel 檔案時發生錯誤: {str(e)}"
+                print(error_msg)
+                return None, error_msg
 
-        return df, f"成功載入 '{filename}'。"
+        elif lower_name.endswith('.json'):
+            print("檢測到 JSON 檔案，嘗試讀取...")
+            try:
+                df = pd.read_json(io.StringIO(decoded.decode('utf-8')))
+                if df.empty:
+                    return None, "JSON 檔案是空的。"
+                return df, f"成功載入 JSON 檔案 '{filename}'。"
+            except Exception as e:
+                error_msg = f"讀取 JSON 檔案時發生錯誤: {str(e)}"
+                print(error_msg)
+                return None, error_msg
+
+        else:
+            return None, "不支援的檔案格式。請上傳 CSV, Excel 或 JSON 檔案。"
 
     except Exception as e:
         error_msg = f"處理檔案 '{filename}' 時發生錯誤: {str(e)}"
@@ -365,7 +389,7 @@ def register_callbacks(app):
             # Don't clear existing data if no content is provided (e.g., initial load)
             return no_update, no_update, no_update, "請上傳一個 CSV 檔案。", no_update
 
-        df, message = parse_csv_simple(contents, filename)
+        df, message = parse_uploaded_file(contents, filename)
 
         if df is not None:
             print("檔案解析成功。")
