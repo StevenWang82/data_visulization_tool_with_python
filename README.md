@@ -1,6 +1,6 @@
 # Data Visualization Tool
 
-這是一個使用 Python Dash 和 Dash Bootstrap Components 建構的多頁面資料視覺化應用程式。它允許使用者上傳 CSV、Excel 或 JSON 檔案，並生成各種互動式（Plotly）和靜態（Seaborn/Matplotlib）圖表來探索資料。
+使用 Python Dash 和 Dash Bootstrap Components 建構的多頁面資料視覺化應用程式。你可以上傳 CSV、Excel 或 JSON 檔案，並生成各種互動式（Plotly）和靜態（Seaborn/Matplotlib）圖表來探索資料，同時獲取程式碼，幫助你透過python學習程式語言。
 
 ## 主要功能
 
